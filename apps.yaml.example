@@ -1,0 +1,7 @@
+tesla_dlm:
+  module: tesla_dlm
+  class: TeslaDLM
+
+  # ── Telegram (optional) ──────────────────────────────────────────────
+  # Your Telegram chat ID (get it from @userinfobot)
+  telegram_chat_id: YOUR_CHAT_ID

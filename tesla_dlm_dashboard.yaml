@@ -1,0 +1,1096 @@
+title: Tesla DLM
+path: tesla-dlm
+icon: mdi:ev-station
+theme: ios-dark-mode-blue-red
+dense_section_placement: true
+max_columns: 3
+type: sections
+sections:
+  # ═══════════════════════════════════════════════════════════════════
+  # HEADER - Full width
+  # ═══════════════════════════════════════════════════════════════════
+  - type: grid
+    column_span: 3
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: custom:mushroom-title-card
+            title: TESLA DLM
+            subtitle: ""
+            card_mod:
+              style: |
+                ha-card {
+                  background: linear-gradient(135deg,
+                    rgba(15, 15, 28, 0.97) 0%,
+                    rgba(22, 30, 48, 0.95) 50%,
+                    rgba(15, 22, 40, 0.97) 100%);
+                  border: 1px solid rgba(0, 188, 212, 0.2);
+                  border-radius: 24px;
+                  padding: 18px 24px 14px 24px;
+                  position: relative;
+                  overflow: hidden;
+                }
+                ha-card .header, ha-card .container { padding: 0 !important; margin: 0 !important; }
+                ha-card .title {
+                  margin: 0 !important; padding: 0 !important;
+                  font-size: 28px !important; font-weight: 700 !important; line-height: 1.1 !important;
+                  display: inline-flex !important; align-items: center !important; gap: 10px !important; width: max-content;
+                  background: linear-gradient(90deg, #00bcd4, #00e5ff, #00bcd4);
+                  background-size: 200% auto;
+                  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                  animation: shine 3s linear infinite;
+                  pointer-events: none;
+                }
+                ha-card .title::before {
+                  content: "🚗⚡"; font-size: 26px; line-height: 1;
+                  -webkit-text-fill-color: #00bcd4;
+                  background: none !important;
+                  filter: drop-shadow(0 0 5px rgba(0,188,212,0.55));
+                }
+                ha-card .subtitle { display: none !important; }
+                ha-card::after {
+                  content: ""; display: block; width: 100%; height: 4px; margin-top: 12px; border-radius: 999px;
+                  background-image:
+                    linear-gradient(90deg, rgba(0,188,212,0.20), rgba(0,229,255,0.20)),
+                    linear-gradient(90deg,
+                      transparent 0%, rgba(0,188,212,0) 18%, rgba(0,188,212,0.70) 40%,
+                      rgba(0,229,255,0.85) 47%, rgba(255,255,255,1) 50%,
+                      rgba(0,229,255,0.85) 53%, rgba(0,188,212,0.70) 60%,
+                      rgba(0,188,212,0) 82%, transparent 100%),
+                    radial-gradient(circle,
+                      rgba(255,255,255,1) 0%, rgba(255,255,255,0.55) 35%,
+                      rgba(0,188,212,0.22) 58%, transparent 75%);
+                  background-size: 100% 100%, 200% 100%, 18px 18px;
+                  background-repeat: no-repeat;
+                  background-position: 0% 0, 110% 0, -12px 50%;
+                  animation: sweep-main 2.2s ease-in-out infinite alternate;
+                  box-shadow: 0 0 8px rgba(0,188,212,0.35), 0 0 16px rgba(0,188,212,0.22);
+                  pointer-events: none;
+                }
+                @keyframes shine { to { background-position: 200% center; } }
+                @keyframes sweep-main {
+                  0%   { background-position: 0% 0, 110% 0, -12px 50%; opacity: 0.65; }
+                  50%  { opacity: 1; }
+                  100% { background-position: 0% 0, -10% 0, calc(100% + 12px) 50%; opacity: 0.65; }
+                }
+          # ── Chips di stato rapido ──
+          - type: custom:mushroom-chips-card
+            alignment: center
+            chips:
+              - type: template
+                icon: >-
+                  {% set m = states('input_select.tesla_chargemode_select') %}
+                  {% if m == 'PV DLM' %}mdi:solar-power-variant
+                  {% elif m == 'Grid DLM' %}mdi:transmission-tower
+                  {% elif m == 'Off Peak DLM' %}mdi:weather-night
+                  {% elif m == 'Inverter DLM' %}mdi:refresh
+                  {% elif m == 'Octopus DLM' %}mdi:octopus
+                  {% else %}mdi:power-off{% endif %}
+                icon_color: >-
+                  {% set m = states('input_select.tesla_chargemode_select') %}
+                  {{ 'cyan' if m != 'Off' else 'disabled' }}
+                content: "{{ states('input_select.tesla_chargemode_select') }}"
+                tap_action:
+                  action: more-info
+                  entity: input_select.tesla_chargemode_select
+              - type: template
+                icon: >-
+                  {{ 'mdi:car-connected' if is_state('switch.model3_polling','on') else 'mdi:car-off' }}
+                icon_color: >-
+                  {{ 'green' if is_state('switch.model3_polling','on') else 'red' }}
+                content: >-
+                  {{ 'Sveglia' if is_state('switch.model3_polling','on') else 'Idle' }}
+              - type: template
+                icon: >-
+                  {{ 'mdi:home' if is_state('device_tracker.model3_location_tracker','home') else 'mdi:car' }}
+                icon_color: >-
+                  {{ 'green' if is_state('device_tracker.model3_location_tracker','home') else 'amber' }}
+                content: >-
+                  {{ 'Casa' if is_state('device_tracker.model3_location_tracker','home') else 'Fuori' }}
+              - type: template
+                icon: mdi:battery
+                icon_color: >-
+                  {% set soc = states('sensor.model3_battery') | float(0) %}
+                  {% if soc >= 60 %}green{% elif soc >= 40 %}yellow{% elif soc >= 20 %}orange{% else %}red{% endif %}
+                content: "{{ states('sensor.model3_battery') }}%"
+              - type: template
+                icon: mdi:ev-station
+                icon_color: >-
+                  {{ 'cyan' if states('sensor.teslapower_kw_front') | float(0) > 0 else 'disabled' }}
+                content: "{{ states('sensor.teslapower_kw_front') | float(0) | round(1) }} kW"
+          # ── Top 4 cards ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                entity: sensor.model3_battery
+                primary: "{{ states('sensor.model3_battery') | float(0) | round(0) }} %"
+                secondary: SOC Tesla
+                icon: >-
+                  {% set soc = states('sensor.model3_battery') | float(0) %}
+                  {% set charging = states('sensor.teslapower_kw_front')|float(0) > 0 %}
+                  {% if charging %}
+                    {% if soc >= 90 %}mdi:battery-charging-100{% elif soc >= 80 %}mdi:battery-charging-90
+                    {% elif soc >= 70 %}mdi:battery-charging-80{% elif soc >= 60 %}mdi:battery-charging-70
+                    {% elif soc >= 50 %}mdi:battery-charging-60{% elif soc >= 40 %}mdi:battery-charging-50
+                    {% elif soc >= 30 %}mdi:battery-charging-40{% elif soc >= 20 %}mdi:battery-charging-30
+                    {% elif soc >= 10 %}mdi:battery-charging-20{% else %}mdi:battery-charging-10{% endif %}
+                  {% else %}
+                    {% if soc >= 95 %}mdi:battery{% elif soc >= 85 %}mdi:battery-90
+                    {% elif soc >= 75 %}mdi:battery-80{% elif soc >= 65 %}mdi:battery-70
+                    {% elif soc >= 55 %}mdi:battery-60{% elif soc >= 45 %}mdi:battery-50
+                    {% elif soc >= 35 %}mdi:battery-40{% elif soc >= 25 %}mdi:battery-30
+                    {% elif soc >= 15 %}mdi:battery-20{% elif soc >= 5 %}mdi:battery-10
+                    {% else %}mdi:battery-outline{% endif %}
+                  {% endif %}
+                vertical: true
+                tap_action:
+                  action: more-info
+                color: >-
+                  {% set soc = states('sensor.model3_battery') | float(0) %}
+                  {% if soc >= 60 %}green{% elif soc >= 40 %}yellow{% elif soc >= 20 %}orange{% else %}red{% endif %}
+                card_mod:
+                  style: |
+                    ha-card {
+                      {% set soc = states('sensor.model3_battery') | float(0) %}
+                      {% if soc >= 60 %}{% set r,g,b = 76,175,80 %}
+                      {% elif soc >= 40 %}{% set r,g,b = 255,235,59 %}
+                      {% elif soc >= 20 %}{% set r,g,b = 255,152,0 %}
+                      {% else %}{% set r,g,b = 244,67,54 %}{% endif %}
+                      background: linear-gradient(180deg, rgba({{r}},{{g}},{{b}},0.15) 0%, rgba({{r}},{{g}},{{b}},0.03) 100%);
+                      border: 1px solid rgba({{r}},{{g}},{{b}},0.3); border-radius: 16px;
+                    }
+                    .primary { font-size: 20px !important; font-weight: 700 !important; }
+              - type: custom:mushroom-template-card
+                entity: sensor.teslapower_kw_front
+                primary: "{{ states('sensor.teslapower_kw_front') | float(0) | round(1) }} kW"
+                secondary: Potenza Ricarica
+                icon: mdi:ev-station
+                icon_color: cyan
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(0,188,212,0.15) 0%, rgba(0,188,212,0.03) 100%);
+                      border: 1px solid rgba(0,188,212,0.3); border-radius: 16px; }
+                    .primary { font-size: 20px !important; font-weight: 700 !important; color: rgba(0,188,212,1) !important; }
+              - type: custom:mushroom-template-card
+                entity: sensor.model3_energy_added
+                primary: "{{ states('sensor.model3_energy_added') | float(0) | round(2) }} kWh"
+                secondary: Energy Added
+                icon: mdi:lightning-bolt
+                icon_color: rgb(0,200,83)
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(0,200,83,0.15) 0%, rgba(0,200,83,0.03) 100%);
+                      border: 1px solid rgba(0,200,83,0.3); border-radius: 16px; }
+                    .primary { font-size: 20px !important; font-weight: 700 !important; color: rgba(0,200,83,1) !important; }
+              - type: custom:mushroom-template-card
+                entity: sensor.battery_state_of_capacity
+                primary: "{{ states('sensor.battery_state_of_capacity') | float(0) | round(0) }} %"
+                secondary: Luna2000
+                icon: mdi:home-battery
+                icon_color: rgb(255,193,7)
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(255,193,7,0.15) 0%, rgba(255,193,7,0.03) 100%);
+                      border: 1px solid rgba(255,193,7,0.3); border-radius: 16px; }
+                    .primary { font-size: 20px !important; font-weight: 700 !important; color: rgba(255,193,7,1) !important; }
+        grid_options:
+          columns: full
+        card_mod:
+          style: >-
+            ha-card { background: transparent !important; box-shadow: none !important; }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # COLONNA 1: STATO & RICARICA
+  # ═══════════════════════════════════════════════════════════════════
+  - type: grid
+    column_span: 1
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: custom:mushroom-title-card
+            title: STATO & RICARICA
+            subtitle: ""
+            card_mod:
+              style: >
+                ha-card {
+                  background: linear-gradient(135deg, rgba(20,20,35,0.95) 0%, rgba(30,40,60,0.90) 50%, rgba(20,30,50,0.95) 100%);
+                  border: 1px solid rgba(0,188,212,0.22); border-radius: 24px; padding: 18px 24px 14px 24px;
+                  position: relative; overflow: hidden;
+                }
+                ha-card .title {
+                  margin: 0 !important; font-size: 20px !important; font-weight: 700 !important; line-height: 1.1;
+                  display: inline-flex; align-items: center; gap: 10px;
+                  background: linear-gradient(90deg, #00bcd4, #00e5ff, #00bcd4);
+                  background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                  animation: shine 3s linear infinite;
+                }
+                ha-card .title::before { content: "🔋"; font-size: 20px; line-height: 1; -webkit-text-fill-color: #00bcd4;
+                  background: none !important; filter: drop-shadow(0 0 5px rgba(0,188,212,0.45)); }
+                ha-card .subtitle { display: none !important; }
+                ha-card::after {
+                  content: ""; display: block; width: 100%; height: 4px; margin-top: 12px; border-radius: 999px;
+                  background-image:
+                    linear-gradient(90deg, rgba(0,188,212,0.20), rgba(0,229,255,0.20)),
+                    linear-gradient(90deg, transparent 0%, rgba(0,188,212,0) 18%, rgba(0,188,212,0.70) 40%, rgba(0,229,255,0.85) 47%, rgba(255,255,255,1) 50%, rgba(0,229,255,0.85) 53%, rgba(0,188,212,0.70) 60%, rgba(0,188,212,0) 82%, transparent 100%),
+                    radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,255,255,0.55) 35%, rgba(0,188,212,0.22) 58%, transparent 75%);
+                  background-size: 100% 100%, 200% 100%, 18px 18px; background-repeat: no-repeat;
+                  background-position: 0% 0, 110% 0, -12px 50%;
+                  animation: sweep-main 2.2s ease-in-out infinite alternate;
+                  box-shadow: 0 0 8px rgba(0,188,212,0.30), 0 0 16px rgba(0,229,255,0.18); pointer-events: none;
+                }
+                @keyframes shine { to { background-position: 200% center; } }
+                @keyframes sweep-main {
+                  0%   { background-position: 0% 0, 110% 0, -12px 50%; opacity: 0.65; }
+                  50%  { opacity: 1; }
+                  100% { background-position: 0% 0, -10% 0, calc(100% + 12px) 50%; opacity: 0.65; }
+                }
+          # ── Gauge SOC ──
+          - type: custom:gauge-card-pro
+            entity: sensor.model3_battery
+            min: 0
+            max: 100
+            needle: true
+            needle_color: "#ffffff"
+            gradient: true
+            gradient_resolution: medium
+            round: medium
+            segments:
+              - from: 0
+                color: "#f44336"
+              - from: 15
+                color: "#ff9800"
+              - from: 30
+                color: "#ffeb3b"
+              - from: 50
+                color: "#66bb6a"
+              - from: 70
+                color: "#4caf50"
+              - from: 90
+                color: "#00e676"
+            setpoint:
+              type: template
+              value: "{{ states('input_number.tesla_battery_charge_target') | float(80) }}"
+              color: "#00bcd4"
+              label: true
+              precision: 0
+            inner:
+              mode: severity
+              gradient: true
+              round: medium
+              value: "{{ states('sensor.model3_battery') | float(0) }}"
+              segments:
+                - from: 0
+                  color: rgba(244,67,54,0.4)
+                - from: 30
+                  color: rgba(255,235,59,0.3)
+                - from: 60
+                  color: rgba(76,175,80,0.4)
+            value_texts:
+              primary: "{{ states('sensor.model3_battery') | float(0) | round(0) | int }}"
+              primary_color: >-
+                {% set soc = states('sensor.model3_battery') | float(0) %}
+                {% if soc >= 60 %}#4caf50{% elif soc >= 30 %}#ffeb3b{% else %}#f44336{% endif %}
+              primary_unit: "%"
+              secondary: >-
+                Target: {{ states('input_number.tesla_battery_charge_target') | float(80) | round(0) | int }}%
+            titles:
+              primary: SOC Batteria
+              primary_color: rgba(255,255,255,0.85)
+              primary_font_size: 14px
+            hide_background: true
+            tap_action:
+              action: more-info
+            card_mod:
+              style: |
+                ha-card {
+                  background: linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.2) 100%);
+                  border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 12px;
+                }
+                * {
+                  --main-needle-stroke-width: 1.5px;
+                  --main-needle-stroke-color: rgba(255,255,255,0.6);
+                  --main-setpoint-needle-stroke-color: rgba(0,188,212,0.8);
+                  --main-setpoint-needle-stroke-width: 1px;
+                }
+          # ── Gauge Potenza Ricarica ──
+          - type: custom:gauge-card-pro
+            entity: sensor.teslapower_kw_front
+            min: 0
+            max: 7.4
+            needle: true
+            needle_color: "#ffffff"
+            gradient: true
+            gradient_resolution: auto
+            round: full
+            segments:
+              - from: 0
+                color: "#ffeb3b"
+              - from: 2
+                color: "#4caf50"
+              - from: 5
+                color: "#f44336"
+            value_texts:
+              primary: "{{ states('sensor.teslapower_kw_front') | float(0) | round(1) }}"
+              primary_unit: kW
+              primary_color: "#ffffff"
+            titles:
+              primary: Potenza Ricarica
+              primary_color: "#aaaaaa"
+              primary_font_size: 12px
+            tap_action:
+              action: more-info
+            card_mod:
+              style: |
+                ha-card {
+                  background: linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.2) 100%);
+                  border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 12px;
+                }
+          # ── Info ricarica ──
+          - type: custom:mushroom-template-card
+            entity: sensor.model3_battery
+            primary: >-
+              {{ states('sensor.model3_energy_added') | float(0) | round(2) }} kWh added |
+              {{ states('sensor.model3_battery') }}% SOC
+            secondary: >-
+              {% set s = states('sensor.model3_time_charge_complete') %}
+              {% set m = state_attr('sensor.model3_time_charge_complete','minutes_to_full_charge') %}
+              {% if s in ['unknown','unavailable','none'] or m in [0,'0',none] %}
+                Non in ricarica
+              {% else %}
+                Fine ricarica: {{ states('sensor.tesla_time_to_full_charge') }}
+              {% endif %}
+            icon: mdi:battery-clock
+            icon_color: >-
+              {% if states('sensor.teslapower_kw_front') | float(0) > 0 %}cyan{% else %}disabled{% endif %}
+            multiline_secondary: true
+            card_mod:
+              style: >-
+                ha-card { background: linear-gradient(180deg, rgba(0,188,212,0.12) 0%, rgba(0,188,212,0.02) 100%);
+                  border: 1px solid rgba(0,188,212,0.25); border-radius: 16px; }
+          # ── Ampere attuali ──
+          - type: custom:mushroom-template-card
+            entity: number.model3_charging_amps
+            primary: >-
+              {{ states('number.model3_charging_amps') | float(0) | round(0) }} A ×
+              {{ states('sensor.wallbox_em_channel_2_voltage') | float(230) | round(0) }} V
+            secondary: >-
+              Wallbox: {{ states('sensor.wallbox_em_channel_1_power') | float(0) | round(0) }} W |
+              Voltage AB: {{ states('sensor.a_b_line_voltage') | float(0) | round(0) }} V
+            icon: mdi:current-ac
+            icon_color: >-
+              {% if states('number.model3_charging_amps') | float(0) > 0 %}amber{% else %}disabled{% endif %}
+            multiline_secondary: true
+            card_mod:
+              style: >-
+                ha-card { background: linear-gradient(180deg, rgba(255,193,7,0.12) 0%, rgba(255,193,7,0.02) 100%);
+                  border: 1px solid rgba(255,193,7,0.25); border-radius: 16px; }
+          # ── Grafico storico ──
+          - type: custom:apexcharts-card
+            graph_span: 24h
+            update_interval: 30s
+            header:
+              show: false
+            experimental:
+              color_threshold: true
+            all_series_config:
+              type: area
+              curve: smooth
+              stroke_width: 2
+              opacity: 0.4
+              group_by:
+                func: avg
+                duration: 5min
+                fill: last
+            series:
+              - entity: sensor.teslapower_kw_front
+                name: Potenza carica
+                unit: kW
+                float_precision: 1
+                color_threshold:
+                  - value: 0
+                    color: "#00e5ff"
+                  - value: 3
+                    color: "#00e676"
+                  - value: 5
+                    color: "#ff9800"
+              - entity: sensor.model3_battery
+                name: SOC
+                unit: "%"
+                float_precision: 0
+                color: "#7c4dff"
+                opacity: 0.3
+                stroke_width: 1
+            yaxis:
+              - id: power
+                min: 0
+                max: 8
+                decimals: 1
+                apex_config:
+                  tickAmount: 4
+                  labels:
+                    style:
+                      colors: rgba(255,255,255,0.75)
+              - id: soc
+                min: 0
+                max: 100
+                opposite: true
+                decimals: 0
+                apex_config:
+                  tickAmount: 5
+                  labels:
+                    style:
+                      colors: rgba(255,255,255,0.5)
+            apex_config:
+              chart:
+                height: 200
+                toolbar:
+                  show: false
+                zoom:
+                  enabled: false
+              grid:
+                borderColor: rgba(255,255,255,0.06)
+                strokeDashArray: 3
+              xaxis:
+                labels:
+                  style:
+                    colors: rgba(255,255,255,0.55)
+              legend:
+                show: false
+              tooltip:
+                theme: dark
+              fill:
+                type: gradient
+                gradient:
+                  shade: dark
+                  shadeIntensity: 0.6
+                  inverseColors: false
+                  opacityFrom: 0.4
+                  opacityTo: 0
+                  stops:
+                    - 0
+                    - 40
+                    - 100
+            card_mod:
+              style: |
+                ha-card {
+                  background: rgba(0,0,0,0.10);
+                  border-radius: 20px;
+                  border: 1px solid rgba(255,255,255,0.12);
+                  box-shadow: 0 0 10px rgba(0,0,0,0.4);
+                  padding: 8px 6px 4px 6px;
+                  backdrop-filter: blur(8px);
+                }
+        card_mod:
+          style: |
+            ha-card {
+              background: linear-gradient(160deg, rgba(0,188,212,0.1) 0%, rgba(20,30,50,0.95) 100%);
+              border: 1px solid rgba(0,188,212,0.3);
+              border-radius: 24px;
+              padding: 16px;
+              backdrop-filter: blur(10px);
+            }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # COLONNA 2: CONTROLLI
+  # ═══════════════════════════════════════════════════════════════════
+  - type: grid
+    column_span: 1
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: custom:mushroom-title-card
+            title: CONTROLLI
+            subtitle: ""
+            card_mod:
+              style: >
+                ha-card {
+                  background: linear-gradient(135deg, rgba(20,20,35,0.95) 0%, rgba(30,40,60,0.90) 50%, rgba(20,30,50,0.95) 100%);
+                  border: 1px solid rgba(33,150,243,0.22); border-radius: 24px; padding: 18px 24px 14px 24px;
+                  position: relative; overflow: hidden;
+                }
+                ha-card .title {
+                  margin: 0 !important; font-size: 20px !important; font-weight: 700 !important; line-height: 1.1;
+                  display: inline-flex; align-items: center; gap: 10px;
+                  background: linear-gradient(90deg, #2196f3, #64b5f6, #2196f3);
+                  background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                  animation: shine 3s linear infinite;
+                }
+                ha-card .title::before { content: "🎛️"; font-size: 20px; line-height: 1; -webkit-text-fill-color: #2196f3;
+                  background: none !important; filter: drop-shadow(0 0 5px rgba(33,150,243,0.45)); }
+                ha-card .subtitle { display: none !important; }
+                ha-card::after {
+                  content: ""; display: block; width: 100%; height: 4px; margin-top: 12px; border-radius: 999px;
+                  background-image:
+                    linear-gradient(90deg, rgba(33,150,243,0.20), rgba(100,181,246,0.20)),
+                    linear-gradient(90deg, transparent 0%, rgba(33,150,243,0) 18%, rgba(33,150,243,0.70) 40%, rgba(100,181,246,0.85) 47%, rgba(255,255,255,1) 50%, rgba(100,181,246,0.85) 53%, rgba(33,150,243,0.70) 60%, rgba(33,150,243,0) 82%, transparent 100%),
+                    radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,255,255,0.55) 35%, rgba(33,150,243,0.22) 58%, transparent 75%);
+                  background-size: 100% 100%, 200% 100%, 18px 18px; background-repeat: no-repeat;
+                  background-position: 0% 0, 110% 0, -12px 50%;
+                  animation: sweep-main 2.2s ease-in-out infinite alternate;
+                  box-shadow: 0 0 8px rgba(33,150,243,0.30), 0 0 16px rgba(100,181,246,0.18); pointer-events: none;
+                }
+                @keyframes shine { to { background-position: 200% center; } }
+                @keyframes sweep-main {
+                  0%   { background-position: 0% 0, 110% 0, -12px 50%; opacity: 0.65; }
+                  50%  { opacity: 1; }
+                  100% { background-position: 0% 0, -10% 0, calc(100% + 12px) 50%; opacity: 0.65; }
+                }
+          # ── Selettore modalità ──
+          - type: custom:mushroom-select-card
+            entity: input_select.tesla_chargemode_select
+            icon_type: icon
+            name: Modalità DLM
+            fill_container: true
+            secondary_info: state
+            hold_action:
+              action: call-service
+              service: input_select.select_option
+              target:
+                entity_id: input_select.tesla_chargemode_select
+              data:
+                option: "Off"
+            tap_action:
+              action: none
+            card_mod:
+              style: >-
+                ha-card {
+                  {% set m = states('input_select.tesla_chargemode_select') %}
+                  {% if m != 'Off' %}
+                  background: radial-gradient(circle at center, rgba(0,188,212,0.2) 0%, rgba(0,188,212,0.03) 70%);
+                  border: 2px solid rgba(0,188,212,0.6); box-shadow: 0 0 18px rgba(0,188,212,0.3);
+                  {% else %}
+                  background: rgba(50,50,50,0.3); border: 1px solid rgba(100,100,100,0.3);
+                  {% endif %}
+                  border-radius: 16px;
+                }
+          # ── Charge Target ──
+          - type: custom:mushroom-number-card
+            entity: input_number.tesla_battery_charge_target
+            fill_container: true
+            display_mode: slider
+            layout: horizontal
+            icon_color: cyan
+            name: Charge Target
+            card_mod:
+              style: >-
+                ha-card { background: linear-gradient(180deg, rgba(0,188,212,0.15) 0%, rgba(0,188,212,0.02) 100%);
+                  border: 1px solid rgba(0,188,212,0.4); border-radius: 16px; }
+          # ── Ampere Tesla ──
+          - type: custom:mushroom-number-card
+            entity: number.model3_charging_amps
+            fill_container: true
+            display_mode: buttons
+            name: Ampere Tesla
+            layout: horizontal
+            icon_color: amber
+            card_mod:
+              style: >-
+                ha-card { background: linear-gradient(180deg, rgba(255,193,7,0.15) 0%, rgba(255,193,7,0.02) 100%);
+                  border: 1px solid rgba(255,193,7,0.4); border-radius: 16px; }
+          # ── Grid Max / Inverter Max ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-number-card
+                fill_container: true
+                entity: input_number.electric_meter_power
+                layout: vertical
+                icon_color: red
+                name: Grid Max
+                display_mode: buttons
+                secondary_info: none
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(244,67,54,0.12) 0%, rgba(244,67,54,0.02) 100%);
+                      border: 1px solid rgba(244,67,54,0.3); border-radius: 16px; }
+              - type: custom:mushroom-number-card
+                fill_container: true
+                display_mode: buttons
+                entity: input_number.inverter_max_power
+                layout: vertical
+                icon_color: green
+                name: Inverter Max
+                secondary_info: none
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(76,175,80,0.12) 0%, rgba(76,175,80,0.02) 100%);
+                      border: 1px solid rgba(76,175,80,0.3); border-radius: 16px; }
+          # ── Luna2000 SOC Target ──
+          - type: custom:mushroom-number-card
+            fill_container: true
+            display_mode: buttons
+            entity: input_number.luna2000_soc_target
+            layout: horizontal
+            icon_color: amber
+            name: Luna2000 SOC Target
+            icon: mdi:battery-medium
+            card_mod:
+              style: >-
+                ha-card { background: linear-gradient(180deg, rgba(255,193,7,0.12) 0%, rgba(255,193,7,0.02) 100%);
+                  border: 1px solid rgba(255,193,7,0.3); border-radius: 16px; }
+          # ── Overvolt limit ──
+          - type: custom:mushroom-entity-card
+            entity: input_boolean.overvolt_limit
+            name: Protezione Overvolt (>246V)
+            icon: mdi:flash-alert
+            tap_action:
+              action: toggle
+            layout: horizontal
+            card_mod:
+              style: >-
+                ha-card {
+                  {% if is_state('input_boolean.overvolt_limit', 'on') %}
+                  background: radial-gradient(circle at center, rgba(244,67,54,0.2) 0%, rgba(244,67,54,0.03) 70%);
+                  border: 2px solid rgba(244,67,54,0.6); box-shadow: 0 0 15px rgba(244,67,54,0.3);
+                  {% else %}
+                  background: rgba(50,50,50,0.3); border: 1px solid rgba(100,100,100,0.3);
+                  {% endif %} border-radius: 16px;
+                }
+          # ── Soglia PV Auto-Start ──
+          - type: custom:mushroom-number-card
+            fill_container: true
+            display_mode: slider
+            entity: input_number.tesla_pv_auto_start_threshold
+            layout: horizontal
+            icon: mdi:solar-power-variant
+            icon_color: orange
+            name: Soglia PV Auto-Start
+            card_mod:
+              style: >-
+                ha-card { background: linear-gradient(180deg, rgba(255,152,0,0.12) 0%, rgba(255,152,0,0.02) 100%);
+                  border: 1px solid rgba(255,152,0,0.3); border-radius: 16px; }
+          # ── Countdown + Fascia + Force Update ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                entity: input_select.tesla_chargemode_select
+                primary: Countdown
+                secondary: >-
+                  {% set mode = states('input_select.tesla_chargemode_select') %}
+                  {% if mode != 'Off Peak DLM' %}--:--:--
+                  {% else %}
+                    {% if states('sensor.charge_countdown')|float(0) < 0 %}In ricarica
+                    {% else %}{{ states('sensor.charge_countdown') }}{% endif %}
+                  {% endif %}
+                icon: mdi:counter
+                tap_action:
+                  action: none
+                color: >-
+                  {{ 'amber' if is_state('input_select.tesla_chargemode_select','Off Peak DLM') else 'disabled' }}
+                vertical: true
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 42px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; backdrop-filter: blur(10px); padding: 10px; }
+                    {% if is_state('input_select.tesla_chargemode_select','Off Peak DLM') %}
+                    ha-card { box-shadow: 0 0 18px rgba(255,193,7,0.22); border-color: rgba(255,193,7,0.35); }
+                    {% endif %}
+              - type: custom:mushroom-template-card
+                entity: sensor.pun_fascia_corrente
+                primary: Fascia
+                secondary: "{{ states('sensor.pun_prezzo_fascia_corrente') | float(0) | round(4) }} €/kWh"
+                icon: >-
+                  {% if is_state('sensor.pun_fascia_corrente','F1') %}mdi:keyboard-f1
+                  {% elif is_state('sensor.pun_fascia_corrente','F2') %}mdi:keyboard-f2
+                  {% else %}mdi:keyboard-f3{% endif %}
+                icon_color: >-
+                  {% if is_state('sensor.pun_fascia_corrente','F1') %}red
+                  {% elif is_state('sensor.pun_fascia_corrente','F2') %}amber
+                  {% else %}green{% endif %}
+                vertical: true
+                tap_action:
+                  action: none
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 42px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; backdrop-filter: blur(10px); padding: 10px; }
+              - type: custom:mushroom-template-card
+                entity: button.model3_force_data_update
+                primary: Force Upd
+                secondary: >-
+                  {{ as_timestamp(states.button.model3_force_data_update.last_changed)
+                  | timestamp_custom('%H:%M', true) }}
+                icon: mdi:car-clock
+                icon_color: cyan
+                vertical: true
+                tap_action:
+                  action: call-service
+                  service: button.press
+                  target:
+                    entity_id: button.model3_force_data_update
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 42px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; backdrop-filter: blur(10px); padding: 10px; }
+          # ── Polling & Charger ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                entity: switch.model3_polling
+                primary: Polling
+                secondary: >-
+                  {{ 'Attivo' if is_state('switch.model3_polling','on') else 'Idle' }}
+                icon: >-
+                  {{ 'mdi:car-connected' if is_state('switch.model3_polling','on') else 'mdi:car-off' }}
+                icon_color: >-
+                  {{ 'green' if is_state('switch.model3_polling','on') else 'red' }}
+                vertical: true
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 42px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; backdrop-filter: blur(10px); padding: 10px; }
+                    {% if is_state('switch.model3_polling','on') %}
+                    ha-card { box-shadow: 0 0 14px rgba(76,175,80,0.22); border-color: rgba(76,175,80,0.35); }
+                    {% endif %}
+              - type: custom:mushroom-template-card
+                entity: switch.model3_charger
+                primary: Charger
+                secondary: >-
+                  {{ 'On' if is_state('switch.model3_charger','on') else 'Off' }}
+                icon: mdi:ev-station
+                icon_color: >-
+                  {{ 'cyan' if is_state('switch.model3_charger','on') else 'disabled' }}
+                vertical: true
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 42px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; backdrop-filter: blur(10px); padding: 10px; }
+                    {% if is_state('switch.model3_charger','on') %}
+                    ha-card { box-shadow: 0 0 14px rgba(0,188,212,0.22); border-color: rgba(0,188,212,0.35); }
+                    {% endif %}
+              - type: custom:mushroom-template-card
+                entity: sensor.model3_data_last_update_time
+                primary: Last Upd
+                secondary: >-
+                  {{ as_timestamp(states('sensor.model3_data_last_update_time'))
+                  | timestamp_custom('%H:%M:%S', true) }}
+                icon: mdi:database-sync
+                icon_color: purple
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 42px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; backdrop-filter: blur(10px); padding: 10px; }
+        card_mod:
+          style: |
+            ha-card {
+              background: linear-gradient(160deg, rgba(33,150,243,0.1) 0%, rgba(20,30,50,0.95) 100%);
+              border: 1px solid rgba(33,150,243,0.3);
+              border-radius: 24px;
+              padding: 16px;
+              backdrop-filter: blur(10px);
+            }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # COLONNA 3: MONITORAGGIO & ENERGIA
+  # ═══════════════════════════════════════════════════════════════════
+  - type: grid
+    column_span: 1
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: custom:mushroom-title-card
+            title: MONITORAGGIO
+            subtitle: ""
+            card_mod:
+              style: >
+                ha-card {
+                  background: linear-gradient(135deg, rgba(20,20,35,0.95) 0%, rgba(30,40,60,0.90) 50%, rgba(20,30,50,0.95) 100%);
+                  border: 1px solid rgba(76,175,80,0.22); border-radius: 24px; padding: 18px 24px 14px 24px;
+                  position: relative; overflow: hidden;
+                }
+                ha-card .title {
+                  margin: 0 !important; font-size: 20px !important; font-weight: 700 !important; line-height: 1.1;
+                  display: inline-flex; align-items: center; gap: 10px;
+                  background: linear-gradient(90deg, #4caf50, #81c784, #4caf50);
+                  background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                  animation: shine 3s linear infinite;
+                }
+                ha-card .title::before { content: "📊"; font-size: 20px; line-height: 1; -webkit-text-fill-color: #4caf50;
+                  background: none !important; filter: drop-shadow(0 0 5px rgba(76,175,80,0.45)); }
+                ha-card .subtitle { display: none !important; }
+                ha-card::after {
+                  content: ""; display: block; width: 100%; height: 4px; margin-top: 12px; border-radius: 999px;
+                  background-image:
+                    linear-gradient(90deg, rgba(76,175,80,0.20), rgba(129,199,132,0.20)),
+                    linear-gradient(90deg, transparent 0%, rgba(76,175,80,0) 18%, rgba(76,175,80,0.70) 40%, rgba(129,199,132,0.85) 47%, rgba(255,255,255,1) 50%, rgba(129,199,132,0.85) 53%, rgba(76,175,80,0.70) 60%, rgba(76,175,80,0) 82%, transparent 100%),
+                    radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,255,255,0.55) 35%, rgba(76,175,80,0.22) 58%, transparent 75%);
+                  background-size: 100% 100%, 200% 100%, 18px 18px; background-repeat: no-repeat;
+                  background-position: 0% 0, 110% 0, -12px 50%;
+                  animation: sweep-main 2.2s ease-in-out infinite alternate;
+                  box-shadow: 0 0 8px rgba(76,175,80,0.30), 0 0 16px rgba(129,199,132,0.18); pointer-events: none;
+                }
+                @keyframes shine { to { background-position: 200% center; } }
+                @keyframes sweep-main {
+                  0%   { background-position: 0% 0, 110% 0, -12px 50%; opacity: 0.65; }
+                  50%  { opacity: 1; }
+                  100% { background-position: 0% 0, -10% 0, calc(100% + 12px) 50%; opacity: 0.65; }
+                }
+          # ── Sensori potenza impianto ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                entity: sensor.input_power
+                primary: "{{ states('sensor.input_power') | float(0) | round(0) }} W"
+                secondary: PV Input
+                icon: mdi:solar-power-variant
+                icon_color: rgb(255,193,7)
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(255,193,7,0.12) 0%, rgba(255,193,7,0.02) 100%);
+                      border: 1px solid rgba(255,193,7,0.25); border-radius: 16px; }
+                    .primary { font-size: 16px !important; font-weight: 700 !important; }
+              - type: custom:mushroom-template-card
+                entity: sensor.active_power
+                primary: "{{ states('sensor.active_power') | float(0) | round(0) }} W"
+                secondary: Inverter Out
+                icon: mdi:flash
+                icon_color: rgb(0,200,83)
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(0,200,83,0.12) 0%, rgba(0,200,83,0.02) 100%);
+                      border: 1px solid rgba(0,200,83,0.25); border-radius: 16px; }
+                    .primary { font-size: 16px !important; font-weight: 700 !important; }
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                entity: sensor.power_grid_kwp
+                primary: "{{ states('sensor.power_grid_kwp') | float(0) | round(0) }} W"
+                secondary: Rete
+                icon: mdi:transmission-tower
+                icon_color: >-
+                  {% set p = states('sensor.power_grid_kwp') | float(0) %}
+                  {% if p > 3500 %}red{% elif p > 2000 %}amber{% else %}green{% endif %}
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(244,67,54,0.12) 0%, rgba(244,67,54,0.02) 100%);
+                      border: 1px solid rgba(244,67,54,0.25); border-radius: 16px; }
+                    .primary { font-size: 16px !important; font-weight: 700 !important; }
+              - type: custom:mushroom-template-card
+                entity: sensor.grid_active_power
+                primary: "{{ states('sensor.grid_active_power') | float(0) | round(0) }} W"
+                secondary: Grid Active
+                icon: mdi:meter-electric
+                icon_color: cyan
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(0,188,212,0.12) 0%, rgba(0,188,212,0.02) 100%);
+                      border: 1px solid rgba(0,188,212,0.25); border-radius: 16px; }
+                    .primary { font-size: 16px !important; font-weight: 700 !important; }
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                entity: sensor.pv_to_grid_kwp
+                primary: "{{ states('sensor.pv_to_grid_kwp') | float(0) | round(0) }} W"
+                secondary: PV → Grid
+                icon: mdi:solar-power
+                icon_color: rgb(255,152,0)
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(255,152,0,0.12) 0%, rgba(255,152,0,0.02) 100%);
+                      border: 1px solid rgba(255,152,0,0.25); border-radius: 16px; }
+                    .primary { font-size: 16px !important; font-weight: 700 !important; }
+              - type: custom:mushroom-template-card
+                entity: sensor.wallbox_em_channel_1_power
+                primary: "{{ states('sensor.wallbox_em_channel_1_power') | float(0) | round(0) }} W"
+                secondary: Wallbox
+                icon: mdi:ev-plug-type2
+                icon_color: >-
+                  {{ 'cyan' if states('sensor.wallbox_em_channel_1_power') | float(0) > 0 else 'disabled' }}
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(0,188,212,0.12) 0%, rgba(0,188,212,0.02) 100%);
+                      border: 1px solid rgba(0,188,212,0.25); border-radius: 16px; }
+                    .primary { font-size: 16px !important; font-weight: 700 !important; }
+          # ── Luna2000 status ──
+          - type: custom:mushroom-template-card
+            entity: sensor.battery_state_of_capacity
+            primary: >-
+              Luna2000: {{ states('sensor.battery_state_of_capacity') | float(0) | round(0) }}% |
+              Scarica: {{ states('number.batteries_potenza_massima_di_scaricamento_batteria') | float(0) | round(0) }}W
+            secondary: >-
+              {% set dsc = states('number.batteries_potenza_massima_di_scaricamento_batteria') | float(0) %}
+              {% if dsc <= 400 %}🔒 Scarica bloccata (DLM attivo)
+              {% elif dsc >= 5000 %}✅ Scarica libera (5000W)
+              {% else %}⚠️ Scarica limitata ({{ dsc | round(0) }}W){% endif %}
+            icon: mdi:home-battery
+            icon_color: >-
+              {% set soc = states('sensor.battery_state_of_capacity') | float(0) %}
+              {% if soc >= 60 %}green{% elif soc >= 30 %}amber{% else %}red{% endif %}
+            multiline_secondary: true
+            card_mod:
+              style: >-
+                ha-card { background: linear-gradient(180deg, rgba(255,193,7,0.12) 0%, rgba(255,193,7,0.02) 100%);
+                  border: 1px solid rgba(255,193,7,0.25); border-radius: 16px; }
+          # ── Weekly 100% ──
+          - type: custom:mushroom-template-card
+            entity: sensor.tesla_100_1w
+            primary: >-
+              Last 100%: {{ as_timestamp(states('sensor.tesla_100_1w')) | timestamp_custom('%d/%m/%Y - %H:%M', true) }}
+            multiline_secondary: true
+            secondary: >-
+              {{ states['sensor.tesla_100_1w'].attributes.weekly_charge_status }}
+              | Count: {{ states['sensor.tesla_100_1w'].attributes.count }}
+              | Next in: {{ states['sensor.tesla_100_1w'].attributes.days_remaining }} days
+            icon: mdi:battery-check
+            tap_action:
+              action: more-info
+            color: >-
+              {% if states['sensor.tesla_100_1w'].attributes.weekly_charge_status == '100% charge ok' %}green
+              {% elif states['sensor.tesla_100_1w'].attributes.weekly_charge_status == 'Must charge 100%' %}red
+              {% else %}gray{% endif %}
+            card_mod:
+              style: >-
+                :host { --mush-icon-size: 48px; --mush-card-primary-font-size: 13px; --mush-card-secondary-font-size: 12px; }
+                ha-card {
+                  {% if states['sensor.tesla_100_1w'].attributes.weekly_charge_status == 'Must charge 100%' %}
+                  background: radial-gradient(circle at center, rgba(244,67,54,0.15) 0%, rgba(244,67,54,0.02) 70%);
+                  border: 1px solid rgba(244,67,54,0.4);
+                  {% else %}
+                  background: rgba(76,175,80,0.08); border: 1px solid rgba(76,175,80,0.25);
+                  {% endif %} border-radius: 16px;
+                }
+          # ── Octopus controls ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                entity: binary_sensor.YOUR_OCTOPUS_DEVICE_ID_dispatching_intelligente_ev
+                primary: Dispatching
+                secondary: >-
+                  {{ 'Attivo' if is_state('binary_sensor.YOUR_OCTOPUS_DEVICE_ID_dispatching_intelligente_ev','on') else 'Spento' }}
+                icon: mdi:octopus
+                icon_color: >-
+                  {{ 'purple' if is_state('binary_sensor.YOUR_OCTOPUS_DEVICE_ID_dispatching_intelligente_ev','on') else 'disabled' }}
+                vertical: true
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 36px; }
+                    ha-card {
+                      {% if is_state('binary_sensor.YOUR_OCTOPUS_DEVICE_ID_dispatching_intelligente_ev','on') %}
+                      background: radial-gradient(circle at center, rgba(156,39,176,0.2) 0%, rgba(156,39,176,0.03) 70%);
+                      border: 1px solid rgba(156,39,176,0.4); box-shadow: 0 0 12px rgba(156,39,176,0.25);
+                      {% else %}
+                      background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10);
+                      {% endif %} border-radius: 18px; padding: 10px;
+                    }
+              - type: custom:mushroom-template-card
+                entity: switch.YOUR_OCTOPUS_DEVICE_ID_controllo_smart_ev
+                primary: Smart EV
+                secondary: >-
+                  {{ 'Attivo' if is_state('switch.YOUR_OCTOPUS_DEVICE_ID_controllo_smart_ev','on') else 'Off' }}
+                icon: mdi:car-electric
+                icon_color: >-
+                  {{ 'purple' if is_state('switch.YOUR_OCTOPUS_DEVICE_ID_controllo_smart_ev','on') else 'disabled' }}
+                vertical: true
+                tap_action:
+                  action: toggle
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 36px; }
+                    ha-card {
+                      {% if is_state('switch.YOUR_OCTOPUS_DEVICE_ID_controllo_smart_ev','on') %}
+                      background: radial-gradient(circle at center, rgba(156,39,176,0.2) 0%, rgba(156,39,176,0.03) 70%);
+                      border: 1px solid rgba(156,39,176,0.4); box-shadow: 0 0 12px rgba(156,39,176,0.25);
+                      {% else %}
+                      background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10);
+                      {% endif %} border-radius: 18px; padding: 10px;
+                    }
+          # ── Voltage cards ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-template-card
+                entity: sensor.wallbox_em_channel_2_voltage
+                primary: "{{ states('sensor.wallbox_em_channel_2_voltage') | float(0) | round(0) }}V"
+                secondary: Wallbox V
+                icon: mdi:sine-wave
+                icon_color: >-
+                  {% set v = states('sensor.wallbox_em_channel_2_voltage') | float(230) %}
+                  {% if v > 246 %}red{% elif v > 240 %}amber{% else %}green{% endif %}
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 36px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; padding: 10px; }
+              - type: custom:mushroom-template-card
+                entity: sensor.a_b_line_voltage
+                primary: "{{ states('sensor.a_b_line_voltage') | float(0) | round(0) }}V"
+                secondary: Linea AB
+                icon: mdi:flash-triangle
+                icon_color: >-
+                  {% set v = states('sensor.a_b_line_voltage') | float(230) %}
+                  {% if v > 246 %}red{% elif v > 240 %}amber{% else %}green{% endif %}
+                vertical: true
+                tap_action:
+                  action: more-info
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 36px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; padding: 10px; }
+              - type: custom:mushroom-template-card
+                entity: binary_sensor.working_day_tariff_f1_f2
+                primary: >-
+                  {{ 'Lavorativo' if is_state('binary_sensor.working_day_tariff_f1_f2','on') else 'Festivo' }}
+                secondary: Giorno
+                icon: >-
+                  {{ 'mdi:briefcase' if is_state('binary_sensor.working_day_tariff_f1_f2','on') else 'mdi:party-popper' }}
+                icon_color: >-
+                  {{ 'amber' if is_state('binary_sensor.working_day_tariff_f1_f2','on') else 'green' }}
+                vertical: true
+                card_mod:
+                  style: >-
+                    :host { --mush-icon-size: 36px; }
+                    ha-card { background: linear-gradient(145deg, rgba(30,40,60,0.55), rgba(15,20,35,0.35));
+                      border: 1px solid rgba(255,255,255,0.10); border-radius: 18px; padding: 10px; }
+        card_mod:
+          style: |
+            ha-card {
+              background: linear-gradient(160deg, rgba(76,175,80,0.1) 0%, rgba(20,30,50,0.95) 100%);
+              border: 1px solid rgba(76,175,80,0.3);
+              border-radius: 24px;
+              padding: 16px;
+              backdrop-filter: blur(10px);
+            }

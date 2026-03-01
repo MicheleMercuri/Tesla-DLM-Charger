@@ -1,0 +1,14 @@
+# Personal configuration
+apps.yaml
+*.secret
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Editor
+.vscode/
+.idea/
+*.swp
