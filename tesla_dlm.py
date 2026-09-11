@@ -16,6 +16,91 @@ Funzioni accessorie:
   - Auto-start PV/Grid DLM basato su produzione solare
   - Notifiche Telegram
   - Gestione scarico batteria Luna2000
+
+Changelog v3.11 (2026-06-14):
+  - NEW: gestione carica 100% delegata alla Tesla per il bilanciamento celle/carica.
+         Regola: limite 80% → ferma il DLM (stop a SOC≥80); limite 100% → ferma la
+         TESLA (il DLM non taglia mai a SOC≥100, sopra il 99% lascia fare il
+         balancing all'auto; la sessione chiude quando la Tesla spegne il caricatore).
+  - NEW: il DLM pilota il limite REALE Tesla (number.model3_charge_limit) via
+         _set_tesla_charge_limit (scrive solo on-change e solo ad auto a casa).
+         _apply_charge_target allinea helper target + limite reale: 80% default,
+         100% se settimanale dovuta o override manuale. Usato in weekly tracker,
+         Off-Peak e Octopus (prima settavano solo l'helper).
+  - NEW: override manuale carica 100% via input_boolean.tesla_force_100 (toggle
+         dashboard). A carica completata (_stop_charging, SOC≥99) l'override si
+         spegne da solo e il default torna a 80%.
+  - SAFE: freeze anti-interruzione bilanciamento in _apply_charge_target: durante
+         una carica attiva NON abbassa il target se SOC≥nuovo target (non ferma il
+         balancing). Revert a 80% solo a fine sessione (force_lower=True).
+  - SAFE: listener _on_charger_off_cleanup (charger off≥60s + SOC≥99) → cleanup
+         robusto indipendente dal loop DLM: spegne override e torna a 80% anche se
+         il loop non gira (es. dopo restart AppDaemon a metà sessione).
+
+Changelog v3.10 (2026-06-14):
+  - NEW: Riserva PV all'accumulo di casa in PV DLM. Switch
+         input_boolean.tesla_pv_battery_reserve (OFF = 100% alla Tesla, storico).
+         Quando ON e Luna SOC < input_number.luna2000_soc_target, sottrae
+         input_number.tesla_pv_battery_reserve_power (W) dal surplus Tesla, sia in
+         _calc_pv_surplus che in _check_needs_adjustment_pv (helper _pv_battery_reserve_w).
+         Risolve la starvation: con target Tesla 100% il DLM rampava fino ad
+         azzerare la carica della Luna (verificato con monitor 20 min: SOC bloccato
+         al 22%). Ora la batteria di casa carica fino al target, poi cede il PV.
+
+Changelog v3.9 (2026-06-14):
+  - FIX: il limite di scarica batteria di casa (input_number.luna2000_soc_target)
+         ora ferma la ricarica anche in PV DLM, non solo in Inverter DLM.
+         Prima il check era gated su mode == "Inverter DLM" e veniva ignorato
+         in PV DLM (l'auto svuotava la Luna2000 sotto soglia). Grid/Off-Peak/
+         Octopus restano esclusi (caricano da rete, scarica Luna già bloccata).
+
+Changelog v3.8 (2026-05-02):
+  - FIX: il DLM non interferisce più con la ricarica fuori casa (Supercharger,
+         colonnina amica). Bailout posizione PRIMA di toccare amperaggio in:
+         _on_charger_turned_on, _auto_dlm_timeout, _start_charge_sequence,
+         _on_octopus_dispatching. Il check tardivo in _start_charge_sequence_part2
+         resta come safety net su dati freschi post wake_up.
+  - NEW: flag self._dlm_controlled_charger (settato dopo _charger_on() in part2)
+         + helper _abort_to_off_safely() per terminare una sequenza DLM
+         senza chiamare _charger_off() su un caricatore acceso dall'utente.
+  - NEW: _on_mode_changed ramo Off ora condiziona _charger_off() al flag.
+
+Changelog v3.7 (2026-03-18):
+  - NEW: Gestione zona gialla PM progressiva a 3 step
+         Step 1 (T+0): solo log, nessun intervento
+         Step 2 (T+3 min): riduzione moderata 50% se Tesla è il problema
+         Step 3 (T+45 min): riduzione completa a safe_amps (15 min prima del PM check 3)
+  - NEW: listener pm_request_tesla_reduce per riduzione esplicita richiesta dal
+         Power Manager al check 3 (T+60 min)
+  - FIX: Telegram inline_keyboard convertito a nested list [[label, callback], ...]
+         (formato richiesto da HA telegram_bot quando callback contiene caratteri
+         che il vecchio formato CSV interpretava come separatori)
+  - REFACTOR: _parse_last_changed estratto come helper
+  - Timer zona gialla cancellati automaticamente se zona torna verde
+
+Changelog v3.6 (2026-03-14):
+  - FIX/REFACTOR: robustezza history reading (isinstance dict checks per evitare
+         crash su entry malformate, debug logging di get_history)
+
+Changelog v3.5 (2026-03-03):
+  - NEW: init rapida (5s) sensor.tesla_100_1w da input_text persistente per
+         evitare stato unknown durante boot
+  - NEW: aggiornamento periodico ogni 6h del sensore 100% (safety net)
+  - NEW: _is_soc_100() helper per gestire correttamente '100', '100.0', 100, 100.0
+  - FIX: fallback robusto in caso di errore _update_weekly_100_sensor
+
+Changelog v3.4 (2026-03-03):
+  - PUBLIC: prima release pubblica su GitHub (README, LICENSE, .gitignore,
+         apps.yaml.example, dashboard YAML)
+
+Changelog v3.3:
+  - FIX: listen_state su sensor.model3_battery per rilevare SOC=100%
+         e aggiornare sensor.tesla_100_1w in tempo reale
+  - FIX: _update_weekly_100_sensor() chiamato anche in _stop_charging()
+  - FIX: friendly_name aggiunto ai sensori AppDaemon (tesla_100_1w, charge_countdown)
+  - FIX: _should_continue_charging() ora ferma anche quando SOC ≥ 100% (target 100)
+  - NEW: wallbox wake-up rapido — quando wallbox rileva potenza > 100W senza DLM
+         attivo, forza button.model3_force_data_update (cooldown 120s anti-spam)
 """
 
 import appdaemon.plugins.hass.hassapi as hass
@@ -40,9 +125,13 @@ TESLA_DATA_UPDATE     = "sensor.model3_data_last_update_time"
 # Controlli Dashboard
 CHARGE_MODE_SELECT    = "input_select.tesla_chargemode_select"
 CHARGE_TARGET         = "input_number.tesla_battery_charge_target"
+TESLA_CHARGE_LIMIT    = "number.model3_charge_limit"     # limite REALE Tesla (80/100)
+FORCE_100_SWITCH      = "input_boolean.tesla_force_100"  # override manuale carica 100%
 METER_POWER           = "input_number.electric_meter_power"
 INVERTER_MAX_POWER    = "input_number.inverter_max_power"
 LUNA_SOC_TARGET       = "input_number.luna2000_soc_target"
+PV_BATT_RESERVE_SWITCH = "input_boolean.tesla_pv_battery_reserve"   # ON = riserva PV all'accumulo
+PV_BATT_RESERVE_POWER  = "input_number.tesla_pv_battery_reserve_power"  # W riservati alla Luna sotto target
 PV_AUTO_START_INPUT   = "input_number.tesla_pv_auto_start_threshold"
 LAST_100_HELPER       = "input_text.tesla_last_100_date"  # Persistenza data ultima carica 100%
 
@@ -86,6 +175,10 @@ DATA_FRESHNESS_MAX     = 90     # secondi max per considerare dati aggiornati
 PV_AUTO_START_MIN      = 500    # W - soglia PV per auto-start PV DLM (sotto → Grid DLM)
 SUN_ENTITY             = "sun.sun"  # above_horizon / below_horizon
 
+# Wallbox wake-up: forza aggiornamento Tesla quando wallbox rileva potenza
+WALLBOX_POWER_THRESHOLD = 100   # W - soglia minima per considerare ricarica attiva
+WALLBOX_WAKEUP_COOLDOWN = 120   # secondi - cooldown tra wake-up consecutivi
+
 
 class TeslaDLM(hass.Hass):
     """App principale per la gestione dinamica della ricarica Tesla."""
@@ -93,7 +186,7 @@ class TeslaDLM(hass.Hass):
     def initialize(self):
         """Inizializzazione dell'app e registrazione dei listener."""
 
-        self.log("🚗⚡ Tesla DLM v3.2 - Avvio...")
+        self.log("🚗⚡ Tesla DLM v3.11 - Avvio...")
 
         # ── Telegram (via servizi HA nativi) ──
         self.telegram_chat_id = self.args.get("telegram_chat_id", None)
@@ -120,6 +213,15 @@ class TeslaDLM(hass.Hass):
         self._tg_choice_pending = False       # True quando aspettiamo una scelta utente
         # Power Manager: limite ampere imposto da PM per evitare distacco
         self._pm_throttle_amps = None         # None = nessun limite PM attivo
+        # Timer zona gialla progressiva
+        self._pm_yellow_step2_timer = None
+        self._pm_yellow_step3_timer = None
+        # Wallbox wake-up: timestamp ultimo force_data_update da wallbox
+        self._last_wallbox_wakeup = None
+        # True solo dopo che la sequenza ha realmente acceso il caricatore.
+        # Permette di abortire una sequenza DLM senza spegnere un caricatore
+        # acceso dall'utente (es. ricarica fuori casa al Supercharger).
+        self._dlm_controlled_charger = False
 
         # ── LISTENER: Cambio modalità di ricarica ──
         self.listen_state(
@@ -154,16 +256,45 @@ class TeslaDLM(hass.Hass):
 
         # ── TELEGRAM: listener permanente per callback inline keyboard ──
         self.listen_event(self._on_telegram_callback, "telegram_callback")
+
+        # ── PM COORDINATION: riduzione immediata su richiesta Power Manager ──
+        self.listen_event(self._on_pm_reduce_request, "pm_request_tesla_reduce")
         self.log("  TG: listen_event('telegram_callback') registrato")
 
         # ── POWER MANAGER: reagisci ai cambi zona per evitare distacco ──
         self.listen_state(self._on_pm_zone_change, PM_ZONE_SENSOR)
         self.log("  PM: listen_state su sensor.power_manager_zone")
 
-        # ── STARTUP: aggiorna sensore 100% ──
-        self.run_in(self._on_startup_check, 120)  # 2 minuti dopo avvio
+        # ── BATTERY SOC: rileva raggiungimento 100% per aggiornare sensore settimanale ──
+        self.listen_state(self._on_battery_soc_changed, TESLA_BATTERY)
+        self.log("  SOC: listen_state su sensor.model3_battery (100% tracking)")
 
-        self.log("🚗⚡ Tesla DLM v3.2 - Pronto!")
+        # ── OVERRIDE 100%: toggle manuale carica piena ──
+        self.listen_state(self._on_force_100_changed, FORCE_100_SWITCH)
+        self.log("  100%: listen_state su input_boolean.tesla_force_100 (override)")
+
+        # ── CHARGER OFF: cleanup robusto fine carica 100% (anche senza loop attivo) ──
+        self.listen_state(self._on_charger_off_cleanup, TESLA_CHARGER,
+                          new="off", old="on", duration=60)
+        self.log("  100%: cleanup su charger off≥60s (revert robusto a 80%)")
+
+        # ── WALLBOX POWER: rileva ricarica dalla wallbox → forza aggiornamento Tesla ──
+        self.listen_state(self._on_wallbox_power_changed, WALLBOX_POWER)
+        self.log("  WB: listen_state su wallbox power (wake-up rapido)")
+
+        # ── STARTUP: inizializza sensore 100% subito con dato persistente ──
+        # Fase 1: set immediato dallo helper (evita unknown prolungato)
+        self.run_in(self._init_weekly_100_from_persistent, 5)
+        # Fase 2: aggiornamento completo con history dopo 120s
+        self.run_in(self._on_startup_check, 120)
+        # Fase 3: aggiornamento periodico ogni 6 ore (safety net)
+        self._weekly_100_periodic = self.run_every(
+            self._periodic_weekly_100_update,
+            datetime.now() + timedelta(seconds=180),  # prima esecuzione dopo 3 minuti
+            6 * 3600     # ogni 6 ore
+        )
+
+        self.log("🚗⚡ Tesla DLM v3.11 - Pronto!")
         self.log(f"  Telegram:    HA nativo (chat_id: {self.telegram_chat_id})")
 
     # =====================================================================
@@ -215,16 +346,23 @@ class TeslaDLM(hass.Hass):
         target = self._get_float(CHARGE_TARGET, default=80)
         soc = self._get_float(TESLA_BATTERY, default=0)
 
-        # Target 100%: carica sempre (fino a quando Tesla non dice basta)
+        # Target 100%: lo stop lo gestisce la TESLA, non il DLM.
+        # Sopra il 99% l'auto fa bilanciamento celle + carica per un tempo deciso
+        # da lei: il DLM NON taglia mai a SOC≥100. La sessione finisce solo quando
+        # la Tesla spegne il caricatore (rilevato da _is_charger_on nei cicli) →
+        # poi _stop_charging riporta il default a 80%.
         if target == 100:
             return True
 
-        # Per la modalità Inverter DLM: check anche Luna2000 SOC
-        if mode == "Inverter DLM":
+        # Protezione batteria di casa: nelle modalità in cui l'auto può
+        # svuotare la Luna2000 (PV DLM segue il surplus, Inverter DLM segue
+        # l'inverter), ferma la ricarica se il SOC scende sotto il target.
+        # Grid/Off-Peak/Octopus caricano da rete (scarica Luna bloccata) → esclusi.
+        if mode in ("PV DLM", "Inverter DLM"):
             luna_target = self._get_float(LUNA_SOC_TARGET, default=20)
             luna_soc = self._get_float(LUNA_SOC, default=100)
             if luna_soc <= luna_target:
-                self.log(f"🔋 Luna2000 SOC {luna_soc}% ≤ target {luna_target}% → STOP")
+                self.log(f"🔋 Luna2000 SOC {luna_soc}% ≤ target {luna_target}% ({mode}) → STOP")
                 return False
 
         # Target raggiunto → stop
@@ -290,6 +428,14 @@ class TeslaDLM(hass.Hass):
         if current_mode != "Off":
             return
 
+        # Auto-start solo se l'auto è a casa.
+        # Quando il charger va on lontano da casa (Supercharger, colonnina amica)
+        # il DLM non deve interferire: niente Telegram, niente timer auto.
+        location = self.get_state(TESLA_LOCATION)
+        if location != "home":
+            self.log(f"🔌 Charger ON ma auto fuori casa ({location}) → auto-DLM disattivato")
+            return
+
         # Determina modalità suggerita
         auto_mode, auto_reason = self._evaluate_auto_mode()
 
@@ -308,9 +454,9 @@ class TeslaDLM(hass.Hass):
             f"_{auto_reason}_\n\n"
             f"Scegli o attendi {AUTO_GRID_DLM_TIMEOUT}s per avvio auto.",
             keyboard=[
-                "☀️ PV DLM:/dlm_pv, 🔌 Grid DLM:/dlm_grid",
-                "🌙 Off Peak:/dlm_offpeak, 🔄 Inverter:/dlm_inverter",
-                "❌ Annulla (spegni):/dlm_off",
+                [["☀️ PV DLM", "/dlm_pv"], ["🔌 Grid DLM", "/dlm_grid"]],
+                [["🌙 Off Peak", "/dlm_offpeak"], ["🔄 Inverter", "/dlm_inverter"]],
+                [["❌ Annulla (spegni)", "/dlm_off"]],
             ]
         )
 
@@ -355,6 +501,20 @@ class TeslaDLM(hass.Hass):
             self._edit_telegram_choice_message("⏱️ *Timeout* — Charger già spento")
             return
 
+        # Verifica posizione anche al timeout: l'auto potrebbe essere uscita
+        # nel frattempo (race condition tra plug-in e cambio location).
+        location = self.get_state(TESLA_LOCATION)
+        if location != "home":
+            self.log(f"⏱️ Auto DLM: auto fuori casa ({location}) → annullo")
+            self._edit_telegram_choice_message(
+                f"{TG_HEADER}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🚗❌ *Auto fuori casa*\n"
+                f"Posizione: _{location}_\n"
+                f"DLM non avviato."
+            )
+            return
+
         # Rivaluta al momento del timeout (il sole potrebbe essersi mosso)
         auto_mode, auto_reason = self._evaluate_auto_mode()
         emoji = self._get_mode_emoji(auto_mode)
@@ -381,7 +541,7 @@ class TeslaDLM(hass.Hass):
     # REQUISITO: in HA deve essere configurata la piattaforma
     #   telegram_bot (polling), con allowed_chat_ids incluso il tuo chat_id
     #
-    # Formato inline_keyboard HA: "Label:/callback, Label:/callback"
+    # Formato inline_keyboard HA: [["Label", "/callback"], ["Label", "/callback"]]
     # Callback data arriva in evento telegram_callback:
     #   data["data"]    = "/dlm_pv"
     #   data["command"] = "/dlm_pv"
@@ -405,7 +565,7 @@ class TeslaDLM(hass.Hass):
     def _send_telegram_with_keyboard(self, text, keyboard):
         """
         Invia messaggio Telegram con InlineKeyboard via servizio HA.
-        keyboard = lista di stringhe formato HA: ["Label:/cb, Label:/cb", ...]
+        keyboard = lista di righe, ogni riga è lista di [label, callback]: [[["L1","/cb1"], ...], ...]
         Il message_id viene catturato automaticamente dall'evento telegram_sent.
         """
         # Avvia ascolto telegram_sent PRIMA di inviare (per catturare msg_id)
@@ -604,8 +764,10 @@ class TeslaDLM(hass.Hass):
         if voltage <= 0:
             voltage = 230.0
 
-        # Formula CHECK (NO wallbox!)
-        y = pv_input - active + pv_to_grid - power_grid
+        # Formula CHECK (NO wallbox!) — sottrae la riserva accumulo come nel surplus,
+        # così il check non fa rampare la Tesla rubando il PV destinato alla Luna.
+        reserve = self._pv_battery_reserve_w()
+        y = pv_input - active + pv_to_grid - power_grid - reserve
 
         # Limite inverter
         if y > max_inverter:
@@ -682,6 +844,23 @@ class TeslaDLM(hass.Hass):
         self.log(f"  📊 Grid calc: meter={meter:.0f} + grid={grid:.0f} + wallbox={wallbox:.0f} = {available:.0f}W")
         return available
 
+    def _pv_battery_reserve_w(self):
+        """
+        Potenza PV (W) da riservare all'accumulo di casa in PV DLM.
+        Attiva SOLO se lo switch è ON e la Luna è sotto il target SOC.
+        Quando attiva, questa potenza viene sottratta al surplus disponibile per
+        la Tesla (sia nel calcolo amperaggio che nel check), così la batteria di
+        casa si carica fino al target prima di cedere il solare all'auto.
+        Se OFF → ritorna 0 → comportamento storico (100% alla Tesla).
+        """
+        if self.get_state(PV_BATT_RESERVE_SWITCH) != "on":
+            return 0.0
+        luna_soc = self._get_float(LUNA_SOC, default=100)
+        luna_target = self._get_float(LUNA_SOC_TARGET, default=0)
+        if luna_soc >= luna_target:
+            return 0.0
+        return self._get_float(PV_BATT_RESERVE_POWER, default=0)
+
     def _calc_pv_surplus(self):
         """
         Calcola il surplus PV disponibile per la ricarica.
@@ -702,13 +881,17 @@ class TeslaDLM(hass.Hass):
         power_grid = self._get_float(POWER_GRID)
         max_inverter = self._get_float(INVERTER_MAX_POWER, default=10000)
 
-        surplus = pv_input - active + pv_to_grid + wallbox - power_grid
+        reserve = self._pv_battery_reserve_w()
+        surplus = pv_input - active + pv_to_grid + wallbox - power_grid - reserve
 
+        # Non scendere sotto 0 (poi _watts_to_amps clampa al minimo)
+        if surplus < 0:
+            surplus = 0
         # Limite potenza inverter
         if surplus > max_inverter:
             surplus = max_inverter
 
-        self.log(f"  📊 PV calc: pv={pv_input:.0f} - active={active:.0f} + toGrid={pv_to_grid:.0f} + wb={wallbox:.0f} - grid={power_grid:.0f} = {surplus:.0f}W")
+        self.log(f"  📊 PV calc: pv={pv_input:.0f} - active={active:.0f} + toGrid={pv_to_grid:.0f} + wb={wallbox:.0f} - grid={power_grid:.0f} - riserva={reserve:.0f} = {surplus:.0f}W")
         return surplus
 
     def _calc_inverter_available(self):
@@ -845,13 +1028,86 @@ class TeslaDLM(hass.Hass):
         self.log("🔔 Force Wake Up Tesla")
 
     def _set_charge_target(self, value):
-        """Imposta il target di ricarica %."""
+        """Imposta il target di ricarica % (helper locale, usato dal DLM per lo stop)."""
         self.call_service(
             "input_number/set_value",
             entity_id=CHARGE_TARGET,
             value=value
         )
         self.log(f"🎯 Target ricarica → {value}%")
+
+    def _set_tesla_charge_limit(self, value):
+        """
+        Imposta il limite REALE della Tesla (number.model3_charge_limit).
+        - Scrive SOLO se il valore cambia (risparmio chiamate API Tesla).
+        - Scrive SOLO se l'auto è a casa (non sovrascrivere il limite in viaggio,
+          es. Supercharger / colonnina amica).
+        """
+        if not self._is_car_home():
+            self.log("🔋 charge_limit reale: auto fuori casa → non tocco il limite")
+            return
+        current = self._get_float(TESLA_CHARGE_LIMIT, default=-1)
+        if int(current) == int(value):
+            return
+        self.call_service("number/set_value", entity_id=TESLA_CHARGE_LIMIT, value=value)
+        self.log(f"🔋 Tesla charge_limit REALE → {value}%")
+
+    def _wants_full_charge(self):
+        """
+        True se va eseguita una carica al 100%:
+        - override manuale (input_boolean.tesla_force_100 ON), oppure
+        - carica settimanale 100% dovuta (tracker).
+        """
+        if self.get_state(FORCE_100_SWITCH) == "on":
+            return True
+        return self._check_weekly_100() == "Must charge 100%"
+
+    def _apply_charge_target(self, full=None, force_lower=False):
+        """
+        Allinea helper target + limite REALE Tesla.
+        full=True → 100% (lo stop lo gestisce la Tesla: bilanciamento celle/carica).
+        full=False → 80% di default (lo stop lo gestisce il DLM a SOC≥80).
+        Se full è None, decide _wants_full_charge().
+
+        FREEZE anti-interruzione bilanciamento: durante una carica attiva NON si
+        abbassa il target (100→80) se il SOC è già oltre il nuovo target — fermerebbe
+        il balancing che la Tesla fa sopra il 99%. L'abbassamento a 80% avviene a
+        fine sessione (_stop_charging, force_lower=True) quando la Tesla ha già chiuso.
+        """
+        if full is None:
+            full = self._wants_full_charge()
+        target = 100 if full else 80
+        current_target = self._get_float(CHARGE_TARGET, default=80)
+        soc = self._get_float(TESLA_BATTERY, default=0)
+        if (not force_lower and target < current_target
+                and self._is_charger_on() and soc >= target):
+            self.log(f"🔋 target/limite: non abbasso a {target}% durante carica "
+                     f"(SOC {soc}% — lascio finire il bilanciamento Tesla)")
+            return
+        self._set_charge_target(target)
+        self._set_tesla_charge_limit(target)
+
+    def _on_force_100_changed(self, entity, attribute, old, new, kwargs):
+        """Override manuale 100%: applica subito il nuovo target/limite."""
+        self.log(f"🔋 Override 100% → {new}")
+        self._apply_charge_target()
+
+    def _on_charger_off_cleanup(self, entity, attribute, old, new, kwargs):
+        """
+        Cleanup robusto a fine carica, INDIPENDENTE dal loop DLM (funziona anche se
+        il loop non è attivo, es. dopo un riavvio di AppDaemon a metà sessione).
+        Quando il caricatore resta spento ≥60s (la Tesla ha finito, incluso il
+        bilanciamento a 100%) e il SOC è ≥99%: spegne l'override 100% e riporta il
+        default a 80%. La guardia SOC≥99 + duration=60s evita falsi positivi su
+        stop normali a 80% o blip transitori durante il balancing.
+        """
+        if self._get_float(TESLA_BATTERY, default=0) < 99:
+            return
+        if self.get_state(FORCE_100_SWITCH) == "on":
+            self.call_service("input_boolean/turn_off", entity_id=FORCE_100_SWITCH)
+            self.log("🔋 Caricatore spento a SOC≥99% → override 100% OFF")
+        self._apply_charge_target(force_lower=True)
+        self.log("🔋 Cleanup fine carica → default 80%")
 
     def _set_charge_mode(self, mode):
         """Imposta la modalità di ricarica."""
@@ -902,10 +1158,12 @@ class TeslaDLM(hass.Hass):
         # Ignora se non stiamo ricaricando
         mode = self.get_state(CHARGE_MODE_SELECT)
         if not mode or mode == "Off":
+            self._cancel_pm_yellow_timers()
             self._pm_throttle_amps = None
             return
 
         if not self._is_charger_on():
+            self._cancel_pm_yellow_timers()
             self._pm_throttle_amps = None
             return
 
@@ -919,7 +1177,8 @@ class TeslaDLM(hass.Hass):
             self._pm_on_red()
 
     def _pm_on_green(self, old_zone):
-        """PM torna verde: rilascia il limite, il loop DLM normale riprende."""
+        """PM torna verde: cancella timer gialli, rilascia limite."""
+        self._cancel_pm_yellow_timers()
         if self._pm_throttle_amps is not None:
             self.log(f"🟢 PM verde: rilascio cap {self._pm_throttle_amps}A → DLM libero")
             self._pm_throttle_amps = None
@@ -930,31 +1189,146 @@ class TeslaDLM(hass.Hass):
             )
 
     def _pm_on_yellow(self):
-        """PM zona gialla: calcola ampere sicuri per rientrare in verde."""
+        """PM zona gialla: gestione progressiva a 3 step.
+
+        Il contatore GEMIS concede 180 minuti in zona gialla.
+        Step 1 (T+0):     solo log, nessun intervento
+        Step 2 (T+3 min): riduzione moderata 50% se Tesla è il problema
+        Step 3 (T+45 min): riduzione completa a safe_amps (15 min prima del PM check 3)
+        """
         safe_amps = self._calc_pm_safe_amps()
         current_amps = self._get_float(TESLA_AMPS, default=0)
 
         if safe_amps >= current_amps:
-            # Non serve ridurre, la wallbox non è il problema
-            self.log(f"🟡 PM gialla: safe={safe_amps}A >= current={current_amps:.0f}A → no action")
+            self.log(f"🟡 PM gialla step 1: safe={safe_amps}A >= current={current_amps:.0f}A → non sono il problema")
             self._pm_throttle_amps = None
             return
 
-        self._pm_throttle_amps = max(safe_amps, 5)  # minimo 5A
-        self.log(f"🟡 PM gialla: riduco da {current_amps:.0f}A a {self._pm_throttle_amps}A")
+        # Step 1: solo log + notifica informativa, nessuna riduzione
+        self.log(f"🟡 PM gialla step 1: monitoraggio (safe={safe_amps}A, current={current_amps:.0f}A)")
+        self._send_telegram(
+            f"{TG_HEADER} 🟡\n"
+            f"⚠️ *Power Manager: zona gialla*\n"
+            f"Monitoraggio avviato (3 step progressivi)\n"
+            f"Ricarica attuale: {current_amps:.0f}A"
+        )
 
-        # Applica subito la riduzione (non aspetta il prossimo ciclo DLM)
+        # Schedula step 2 (T+3 min) e step 3 (T+30 min)
+        self._cancel_pm_yellow_timers()
+        self._pm_yellow_step2_timer = self.run_in(
+            self._pm_yellow_step2_callback, 180)
+        self._pm_yellow_step3_timer = self.run_in(
+            self._pm_yellow_step3_callback, 2700)
+
+    def _pm_yellow_step2_callback(self, kwargs):
+        """Step 2 (T+3 min): riduzione moderata 50% se ancora in gialla."""
+        self._pm_yellow_step2_timer = None
+        pm_zone = self.get_state(PM_ZONE_SENSOR)
+        if pm_zone != "yellow":
+            self.log(f"🟡 PM gialla step 2: zona ora {pm_zone}, annullo")
+            return
+
+        if not self._is_charger_on():
+            self.log("🟡 PM gialla step 2: charger spento, annullo")
+            return
+
+        safe_amps = self._calc_pm_safe_amps()
+        current_amps = self._get_float(TESLA_AMPS, default=0)
+
+        if safe_amps >= current_amps:
+            self.log(f"🟡 PM gialla step 2: safe={safe_amps}A >= current={current_amps:.0f}A → non sono il problema")
+            self._pm_throttle_amps = None
+            return
+
+        # Riduzione moderata: punto intermedio tra attuale e safe
+        moderate_amps = max(int((current_amps + safe_amps) / 2), 5)
+        self._pm_throttle_amps = moderate_amps
+        self.log(f"🟡 PM gialla step 2: riduzione moderata {current_amps:.0f}A → {moderate_amps}A")
+        self._set_charging_amps(moderate_amps)
+
+        self._send_telegram(
+            f"{TG_HEADER} 🟡\n"
+            f"⚠️ *PM gialla step 2: riduzione moderata*\n"
+            f"Ricarica: {current_amps:.0f}A → {moderate_amps}A\n"
+            f"_Step 3 tra 42 min se persiste_"
+        )
+
+    def _pm_yellow_step3_callback(self, kwargs):
+        """Step 3 (T+45 min): riduzione completa a safe_amps."""
+        self._pm_yellow_step3_timer = None
+        pm_zone = self.get_state(PM_ZONE_SENSOR)
+        if pm_zone != "yellow":
+            self.log(f"🟡 PM gialla step 3: zona ora {pm_zone}, annullo")
+            return
+
+        if not self._is_charger_on():
+            self.log("🟡 PM gialla step 3: charger spento, annullo")
+            return
+
+        safe_amps = self._calc_pm_safe_amps()
+        current_amps = self._get_float(TESLA_AMPS, default=0)
+
+        if safe_amps >= current_amps:
+            self.log(f"🟡 PM gialla step 3: safe={safe_amps}A >= current={current_amps:.0f}A → non sono il problema")
+            self._pm_throttle_amps = None
+            return
+
+        self._pm_throttle_amps = max(safe_amps, 5)
+        self.log(f"🟡 PM gialla step 3: riduzione completa {current_amps:.0f}A → {self._pm_throttle_amps}A")
         self._set_charging_amps(self._pm_throttle_amps)
 
         self._send_telegram(
             f"{TG_HEADER} 🟡\n"
-            f"⚠️ *Power Manager: zona gialla*\n"
-            f"Riduco ricarica: {current_amps:.0f}A → {self._pm_throttle_amps}A\n"
+            f"⚠️ *PM gialla step 3: riduzione completa*\n"
+            f"Ricarica: {current_amps:.0f}A → {self._pm_throttle_amps}A\n"
             f"_Protezione distacco attiva_"
         )
 
+    def _cancel_pm_yellow_timers(self):
+        """Cancella i timer della gestione gialla progressiva."""
+        for attr in ("_pm_yellow_step2_timer", "_pm_yellow_step3_timer"):
+            handle = getattr(self, attr, None)
+            if handle is not None:
+                try:
+                    self.cancel_timer(handle)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+
+    def _on_pm_reduce_request(self, event_name, data, kwargs):
+        """Richiesta esplicita dal Power Manager: riduci subito.
+
+        Il PM al check 3 (T+60 min gialla) chiede al Tesla DLM di ridurre
+        PRIMA di spegnere elettrodomestici. Riduzione immediata completa.
+        """
+        if not self._is_charger_on():
+            self.log("🔰 PM richiesta riduzione: charger spento, ignoro")
+            return
+
+        safe_amps = self._calc_pm_safe_amps()
+        current_amps = self._get_float(TESLA_AMPS, default=0)
+
+        if safe_amps >= current_amps:
+            self.log(f"🔰 PM richiesta riduzione: safe={safe_amps}A >= current={current_amps:.0f}A → non servo")
+            return
+
+        # Cancella timer progressivi (non servono più, il PM ha chiesto riduzione diretta)
+        self._cancel_pm_yellow_timers()
+
+        self._pm_throttle_amps = max(safe_amps, 5)
+        self.log(f"🔰 PM richiesta riduzione: {current_amps:.0f}A → {self._pm_throttle_amps}A (richiesto da PM check 3)")
+        self._set_charging_amps(self._pm_throttle_amps)
+
+        self._send_telegram(
+            f"{TG_HEADER} 🟡\n"
+            f"⚡ *Riduzione richiesta da Power Manager*\n"
+            f"Ricarica: {current_amps:.0f}A → {self._pm_throttle_amps}A\n"
+            f"_PM attenderà 3 min prima di spegnere altri carichi_"
+        )
+
     def _pm_on_red(self):
-        """PM zona rossa: scendi al minimo immediatamente."""
+        """PM zona rossa: cancella timer gialli, scendi al minimo."""
+        self._cancel_pm_yellow_timers()
         current_amps = self._get_float(TESLA_AMPS, default=0)
         min_amp, _ = self._get_amp_limits()
 
@@ -1006,6 +1380,79 @@ class TeslaDLM(hass.Hass):
         except Exception as e:
             self.log(f"⚠️ Errore calcolo PM safe amps: {e}", level="WARNING")
             return 5  # in caso di errore, vai al minimo
+
+    # ─────────────────────────────────────────────────────────────────
+    # BATTERY SOC LISTENER: rileva 100% per aggiornare sensore settimanale
+    # ─────────────────────────────────────────────────────────────────
+
+    def _on_battery_soc_changed(self, entity, attribute, old, new, kwargs):
+        """
+        Callback quando sensor.model3_battery cambia valore.
+        Se il nuovo valore è '100', aggiorna immediatamente il sensore
+        settimanale e salva la data nell'helper persistente.
+        """
+        if new in (None, "unknown", "unavailable"):
+            return
+        if old == new:
+            return
+
+        try:
+            soc = float(new)
+        except (ValueError, TypeError):
+            return
+
+        if soc >= 100:
+            self.log("🔋✅ Tesla SOC raggiunto 100%! Aggiorno sensore settimanale")
+            # Salva subito la data nell'helper persistente
+            now_str = datetime.now().strftime("%d/%m/%Y")
+            self._save_persistent_last_100(now_str)
+            # Aggiorna il sensore completo
+            self._update_weekly_100_sensor()
+
+    # ─────────────────────────────────────────────────────────────────
+    # WALLBOX POWER LISTENER: wake-up rapido Tesla
+    # ─────────────────────────────────────────────────────────────────
+    # Il polling Tesla è a 660s: troppo lento per rilevare una ricarica
+    # appena collegata. Quando la wallbox Shelly rileva potenza > soglia,
+    # forziamo un force_data_update sulla Tesla per sincronizzare HA.
+    # Cooldown di WALLBOX_WAKEUP_COOLDOWN secondi per evitare spam.
+    # ─────────────────────────────────────────────────────────────────
+
+    def _on_wallbox_power_changed(self, entity, attribute, old, new, kwargs):
+        """
+        Callback quando sensor.wallbox_em_channel_1_power cambia valore.
+        Se la potenza supera WALLBOX_POWER_THRESHOLD e nessun DLM è attivo,
+        forza un aggiornamento dati Tesla (button.model3_force_data_update).
+        Cooldown per evitare invii multipli ravvicinati.
+        """
+        if new in (None, "unknown", "unavailable"):
+            return
+
+        try:
+            power = float(new)
+        except (ValueError, TypeError):
+            return
+
+        if power < WALLBOX_POWER_THRESHOLD:
+            return
+
+        # Se un DLM è già attivo, non serve: il polling è già ON e i dati freschi
+        if self._is_charging_active():
+            return
+
+        # Cooldown anti-spam
+        now = datetime.now()
+        if self._last_wallbox_wakeup is not None:
+            elapsed = (now - self._last_wallbox_wakeup).total_seconds()
+            if elapsed < WALLBOX_WAKEUP_COOLDOWN:
+                self.log(f"⚡ Wallbox {power:.0f}W rilevata, "
+                         f"cooldown attivo ({elapsed:.0f}s/{WALLBOX_WAKEUP_COOLDOWN}s)")
+                return
+
+        self._last_wallbox_wakeup = now
+        self.log(f"⚡ Wallbox {power:.0f}W > {WALLBOX_POWER_THRESHOLD}W "
+                 f"senza DLM attivo → force data update Tesla")
+        self._force_wake_up()
 
     # ─────────────────────────────────────────────────────────────────
     # NOTIFICHE TELEGRAM: START / STATUS / STOP
@@ -1245,8 +1692,24 @@ class TeslaDLM(hass.Hass):
         # Ripristina scarica Luna2000
         self._set_luna_discharge(LUNA_DISCHARGE_FULL)
 
-        # Rilascia limite Power Manager
+        # Rilascia limite Power Manager e cancella timer gialli
+        self._cancel_pm_yellow_timers()
         self._pm_throttle_amps = None
+
+        # Se era una carica 100% completata dalla Tesla (SOC≥99 a charger spento),
+        # spegni l'override manuale così il default torna a 80%.
+        if (self._get_float(TESLA_BATTERY, default=0) >= 99
+                and self.get_state(FORCE_100_SWITCH) == "on"):
+            self.call_service("input_boolean/turn_off", entity_id=FORCE_100_SWITCH)
+            self.log("🔋 Carica 100% completata dalla Tesla → override OFF, ritorno a 80%")
+
+        # Aggiorna sensore 100% settimanale (cattura stato finale SOC).
+        self._update_weekly_100_sensor()
+
+        # Riallinea esplicitamente target+limite a fine sessione: force_lower bypassa
+        # il freeze (qui la carica è chiusa, è sicuro tornare a 80% senza interrompere
+        # alcun bilanciamento).
+        self._apply_charge_target(force_lower=True)
 
         # Imposta modalità Off
         self._set_charge_mode("Off")
@@ -1294,7 +1757,14 @@ class TeslaDLM(hass.Hass):
                 self._stop_notified = False  # reset flag
                 self._stop_status_reporting()
                 self._cancel_dlm_loop()
-                self._charger_off()
+                # Spegni il caricatore SOLO se la sequenza DLM lo aveva acceso.
+                # Se l'utente ricarica fuori casa o l'avvio è abortito prima
+                # del _charger_on(), non dobbiamo interrompere la ricarica.
+                if self._dlm_controlled_charger:
+                    self._charger_off()
+                    self._dlm_controlled_charger = False
+                else:
+                    self.log("📵 Off: charger non acceso dal DLM → non lo spengo")
                 self._set_luna_discharge(LUNA_DISCHARGE_FULL)
                 # Valuta se spegnere polling (notte + casa + no ricarica)
                 self._evaluate_polling_after_charge_stop()
@@ -1318,10 +1788,11 @@ class TeslaDLM(hass.Hass):
     def _start_charge_sequence(self, mode):
         """
         Sequenza di avvio ricarica:
+        0. Bailout se auto fuori casa (no side effect)
         1. Set amp 0 → polling on
         2. 5s → wake up (force data update)
         3. 15s → verifica freshness dati
-        4. Verifica Tesla a casa (con dati aggiornati!)
+        4. Verifica Tesla a casa (con dati aggiornati: safety net)
         5. Accendi charger
         6. Check/set target 100%
         7. Avvia loop DLM
@@ -1330,7 +1801,25 @@ class TeslaDLM(hass.Hass):
             self.log("⚠️ Sequenza di avvio già in corso, ignoro")
             return
 
+        # 0. Bailout location PRIMA di qualunque side effect (amps, polling).
+        # I dati possono essere stale ma evita il caso "ricarica fuori casa
+        # interrotta perché l'utente ha selezionato DLM dalla dashboard".
+        # Il check definitivo (con dati freschi post wake_up) resta in part2.
+        location = self.get_state(TESLA_LOCATION)
+        if location != "home":
+            self.log(f"🏠 Tesla non a casa ({location}) → DLM {mode} non avviato")
+            self._send_telegram(
+                f"{TG_HEADER}\n"
+                f"🚗❌ *Tesla non a casa!*\n"
+                f"Posizione: _{location}_\n"
+                f"Modalità *{mode}* annullata."
+            )
+            self._abort_to_off_safely()
+            return
+
         self._startup_running = True
+        # Reset flag: la sequenza non ha ancora acceso il caricatore
+        self._dlm_controlled_charger = False
 
         # Cancella eventuale auto-start Grid DLM pendente
         self._cancel_auto_grid()
@@ -1345,6 +1834,25 @@ class TeslaDLM(hass.Hass):
             5,
             mode=mode,
             next_step="_start_charge_sequence_part2"
+        )
+
+    def _abort_to_off_safely(self):
+        """
+        Riporta input_select a Off senza lasciare side effect distruttivi
+        (caricatore acceso dall'utente non viene spento).
+        Da usare quando la sequenza DLM viene abortita PRIMA di aver acceso
+        il caricatore (es. auto fuori casa, dati non freschi).
+        """
+        self._startup_running = False
+        self._dlm_controlled_charger = False
+        # Sopprime la notifica "DLM stopped" del recursive _on_mode_changed:
+        # all'utente abbiamo già spiegato il motivo dell'abort con il messaggio
+        # specifico (es. "Tesla non a casa").
+        self._stop_notified = True
+        self.call_service(
+            "input_select/select_option",
+            entity_id=CHARGE_MODE_SELECT,
+            option="Off"
         )
 
     def _wake_then_continue(self, kwargs):
@@ -1393,11 +1901,13 @@ class TeslaDLM(hass.Hass):
                 f"I dati Tesla non si sono aggiornati dopo il wake up.\n"
                 f"Riprova o verifica la connettività."
             )
-            self._set_charge_mode("Off")
-            self._startup_running = False
+            self._abort_to_off_safely()
             return
 
-        # ── Verifica Tesla a casa (con dati AGGIORNATI) ──
+        # ── Verifica Tesla a casa (con dati AGGIORNATI: safety net) ──
+        # Il check primario è in _start_charge_sequence (prima di set amps=0).
+        # Qui ricontrolliamo con dati freschi nel caso il primo check abbia
+        # visto location stale.
         location = self.get_state(TESLA_LOCATION)
         if location != "home":
             self.log(f"🏠 Tesla non a casa (stato: {location}) → annullo")
@@ -1407,12 +1917,14 @@ class TeslaDLM(hass.Hass):
                 f"Posizione: _{location}_\n"
                 f"Modalità *{mode}* annullata."
             )
-            self._set_charge_mode("Off")
-            self._startup_running = False
+            self._abort_to_off_safely()
             return
 
         # 4. Accendi charger
         self._charger_on()
+        # Da qui in poi il DLM ha il controllo del caricatore: l'eventuale
+        # transizione a Off DEVE chiamare _charger_off() (vedi _on_mode_changed).
+        self._dlm_controlled_charger = True
 
         # 5. Check 100% settimanale e set target
         self._update_weekly_100_sensor()
@@ -1645,8 +2157,8 @@ class TeslaDLM(hass.Hass):
         Avvia la modalità Off Peak DLM.
         Setta target 100% e attende la fascia F3 (23-07 o festivo).
         """
-        # Imposta target 100%
-        self._set_charge_target(100)
+        # Target/limite: 100% solo se settimanale dovuta o override, altrimenti 80%
+        self._apply_charge_target()
 
         # Verifica se è off-peak adesso
         if self._is_offpeak_now():
@@ -1700,7 +2212,7 @@ class TeslaDLM(hass.Hass):
 
         # Aggiorna countdown a 00:00:00
         self._set_sensor_state("sensor.charge_countdown", "00:00:00",
-                               attributes={"countdown": "00:00:00"})
+                               attributes={"friendly_name": "Charge Countdown", "countdown": "00:00:00"})
 
         self.log("🌙 Off Peak: fascia F3 iniziata → avvio DLM Grid")
         self._dlm_cycle_offpeak({})
@@ -1723,7 +2235,7 @@ class TeslaDLM(hass.Hass):
         formatted = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
         self._set_sensor_state("sensor.charge_countdown", formatted,
-                               attributes={"countdown": formatted})
+                               attributes={"friendly_name": "Charge Countdown", "countdown": formatted})
 
     def _dlm_cycle_offpeak(self, kwargs):
         """Ciclo DLM Off Peak (usa logica Grid: meter + grid + wallbox)."""
@@ -1789,6 +2301,13 @@ class TeslaDLM(hass.Hass):
         """
         self.log("🐙 Octopus Intelligent Dispatching attivato!")
 
+        # Bailout se auto fuori casa: il dispatching è valido solo a casa,
+        # nessun motivo per toccare amperaggio se l'utente sta caricando altrove.
+        location = self.get_state(TESLA_LOCATION)
+        if location != "home":
+            self.log(f"🐙 Auto fuori casa ({location}) → Octopus DLM ignorato")
+            return
+
         # Cancella eventuali loop precedenti
         self._cancel_dlm_loop()
 
@@ -1832,12 +2351,8 @@ class TeslaDLM(hass.Hass):
         # Accendi charger
         self._charger_on()
 
-        # Check e set target 100% settimanale
-        weekly_status = self._check_weekly_100()
-        if weekly_status == "Must charge 100%":
-            self._set_charge_target(100)
-        else:
-            self._set_charge_target(80)
+        # Target/limite reale: 100% se settimanale dovuta o override manuale, else 80%
+        self._apply_charge_target()
 
         # Aggiorna sensore 100% settimanale
         self._update_weekly_100_sensor()
@@ -1919,7 +2434,9 @@ class TeslaDLM(hass.Hass):
             count = 0
 
             for entry in history[0]:
-                if entry.get("state") == "100":
+                if not isinstance(entry, dict):
+                    continue
+                if self._is_soc_100(entry.get("state")):
                     last_changed = datetime.fromisoformat(
                         entry["last_changed"].replace("Z", "+00:00")
                     )
@@ -1948,12 +2465,26 @@ class TeslaDLM(hass.Hass):
                 end_time=end
             )
 
+            # Debug: logga cosa restituisce get_history
+            if history and history[0]:
+                entries = [e for e in history[0] if isinstance(e, dict)]
+                states_100 = [e for e in entries if self._is_soc_100(e.get("state"))]
+                sample = [e.get('state') for e in entries[-5:]]
+                self.log(f"📊 100% history debug: {len(history[0])} entries totali "
+                         f"({len(entries)} dict), "
+                         f"{len(states_100)} at 100%, "
+                         f"ultimi 5 states: {sample}")
+            else:
+                self.log(f"📊 100% history debug: VUOTA (history type={type(history).__name__}, "
+                         f"history={bool(history)}, h[0]={bool(history[0]) if history else 'N/A'})")
+
             if not history or not history[0]:
                 # Nessuna history — usa dato persistente come fallback
                 last_charge_all_time = self._read_persistent_last_100()
                 days_ago = self._calc_days_ago(last_charge_all_time)
                 self._set_sensor_state("sensor.tesla_100_1w", "Must charge 100%",
                     attributes={
+                        "friendly_name": "Tesla 100% 1w",
                         "date_time": None,
                         "count": "00",
                         "weekly_charge_status": "Must charge 100%",
@@ -1963,7 +2494,7 @@ class TeslaDLM(hass.Hass):
                     })
                 self.log(f"📊 100% tracking: Must charge 100%, "
                          f"count=0, days_remaining=7, last={last_charge_all_time}")
-                self._set_charge_target(100)
+                self._apply_charge_target(full=True)
                 return
 
             seven_days_ago = end - timedelta(days=7)
@@ -1971,15 +2502,15 @@ class TeslaDLM(hass.Hass):
             last_full_ever = None
 
             for entry in history[0]:
-                if entry.get("state") == "100":
+                if not isinstance(entry, dict):
+                    continue
+                if self._is_soc_100(entry.get("state")):
                     last_full_ever = entry
                     try:
-                        event_date = datetime.fromisoformat(
-                            entry["last_changed"].replace("Z", "+00:00")
-                        ).replace(tzinfo=None)
+                        event_date = self._parse_last_changed(entry["last_changed"])
                         if event_date >= seven_days_ago:
                             full_charges_7d.append(entry)
-                    except (ValueError, KeyError):
+                    except (ValueError, KeyError, TypeError):
                         pass
 
             count = len(full_charges_7d)
@@ -1991,25 +2522,21 @@ class TeslaDLM(hass.Hass):
                 last_event = full_charges_7d[-1]
                 date_time = last_event.get("last_changed")
                 try:
-                    last_date = datetime.fromisoformat(
-                        date_time.replace("Z", "+00:00")
-                    ).replace(tzinfo=None)
-                    diff_days = (end - last_date).days
+                    last_date = self._parse_last_changed(date_time)
+                    diff_days = int((end - last_date).days)
                     days_remaining = max(7 - diff_days, 0)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, KeyError):
                     pass
 
             # Determina last_charge_all_time dalla history
             last_charge_all_time = None
             if last_full_ever:
                 try:
-                    lc = datetime.fromisoformat(
-                        last_full_ever["last_changed"].replace("Z", "+00:00")
-                    ).replace(tzinfo=None)
+                    lc = self._parse_last_changed(last_full_ever["last_changed"])
                     last_charge_all_time = lc.strftime("%d/%m/%Y")
                     # Salva in helper persistente
                     self._save_persistent_last_100(last_charge_all_time)
-                except (ValueError, KeyError):
+                except (ValueError, KeyError, TypeError):
                     pass
 
             # Se history non ha trovato nulla, usa il dato persistente
@@ -2020,6 +2547,7 @@ class TeslaDLM(hass.Hass):
 
             self._set_sensor_state("sensor.tesla_100_1w", charge_status,
                 attributes={
+                    "friendly_name": "Tesla 100% 1w",
                     "date_time": date_time,
                     "count": f"{count:02d}",
                     "weekly_charge_status": charge_status,
@@ -2031,14 +2559,36 @@ class TeslaDLM(hass.Hass):
             self.log(f"📊 100% tracking: {charge_status}, "
                      f"count={count}, days_remaining={days_remaining}")
 
-            # Imposta target in base allo stato settimanale
-            if charge_status == "Must charge 100%":
-                self._set_charge_target(100)
-            else:
-                self._set_charge_target(80)
+            # Target+limite reale: 100% se settimanale dovuta o override manuale, else 80%
+            full = (charge_status == "Must charge 100%") or self.get_state(FORCE_100_SWITCH) == "on"
+            self._apply_charge_target(full=full)
 
         except Exception as e:
             self.log(f"⚠️ Errore update 100% sensor: {e}", level="WARNING")
+            # FALLBACK: anche in caso di errore, scrivi uno stato valido
+            # usando il dato persistente (evita che il sensore resti unknown)
+            try:
+                last_charge = self._read_persistent_last_100()
+                days_ago = self._calc_days_ago(last_charge)
+                if last_charge and days_ago is not None and days_ago <= 7:
+                    status = "100% charge ok"
+                    days_remaining = max(7 - days_ago, 0)
+                else:
+                    status = "Must charge 100%"
+                    days_remaining = 0 if (days_ago and days_ago > 7) else 7
+                self._set_sensor_state("sensor.tesla_100_1w", status,
+                    attributes={
+                        "friendly_name": "Tesla 100% 1w",
+                        "date_time": None,
+                        "count": "00",
+                        "weekly_charge_status": status,
+                        "days_remaining": days_remaining,
+                        "last_charge_all_time": last_charge,
+                        "days_ago": days_ago
+                    })
+                self.log(f"📊 100% fallback: {status}, last={last_charge}")
+            except Exception as e2:
+                self.log(f"⚠️ Errore anche nel fallback 100%: {e2}", level="WARNING")
 
     def _save_persistent_last_100(self, date_str):
         """Salva la data dell'ultima carica 100% nell'helper persistente."""
@@ -2061,6 +2611,27 @@ class TeslaDLM(hass.Hass):
             pass
         return None
 
+    @staticmethod
+    def _parse_last_changed(value):
+        """Converte last_changed (stringa ISO o datetime) in datetime naive."""
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=None)
+        if isinstance(value, str):
+            return datetime.fromisoformat(
+                value.replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+        raise ValueError(f"Tipo non supportato: {type(value)}")
+
+    @staticmethod
+    def _is_soc_100(state_val):
+        """Verifica se un valore SOC rappresenta 100%. Gestisce '100', '100.0', 100, 100.0."""
+        if state_val is None or state_val in ("unknown", "unavailable", ""):
+            return False
+        try:
+            return float(state_val) >= 100
+        except (ValueError, TypeError):
+            return False
+
     def _calc_days_ago(self, date_str):
         """Calcola quanti giorni fa dalla data dd/mm/yyyy. Ritorna None se non disponibile."""
         if not date_str or date_str == "None":
@@ -2082,6 +2653,61 @@ class TeslaDLM(hass.Hass):
     # =====================================================================
     # STARTUP CHECK
     # =====================================================================
+
+    def _init_weekly_100_from_persistent(self, kwargs):
+        """
+        Inizializzazione rapida del sensore 100% dal dato persistente.
+        Chiamata 5s dopo l'avvio per evitare che il sensore resti in unknown
+        fino al completamento del check history (120s).
+        """
+        self.log("📊 100% init rapida: avvio...")
+        try:
+            last_charge = self._read_persistent_last_100()
+            self.log(f"📊 100% init rapida: helper={last_charge}")
+            days_ago = self._calc_days_ago(last_charge)
+
+            if last_charge and days_ago is not None:
+                if days_ago <= 7:
+                    status = "100% charge ok"
+                    days_remaining = max(7 - days_ago, 0)
+                else:
+                    status = "Must charge 100%"
+                    days_remaining = 0
+            else:
+                status = "Must charge 100%"
+                days_remaining = 7
+
+            self._set_sensor_state("sensor.tesla_100_1w", status,
+                attributes={
+                    "friendly_name": "Tesla 100% 1w",
+                    "date_time": None,
+                    "count": "00",
+                    "weekly_charge_status": status,
+                    "days_remaining": days_remaining,
+                    "last_charge_all_time": last_charge,
+                    "days_ago": days_ago
+                })
+            self.log(f"📊 100% init rapida: {status}, last={last_charge}, "
+                     f"days_ago={days_ago}, days_remaining={days_remaining}")
+
+        except Exception as e:
+            self.log(f"⚠️ Errore init rapida 100%: {e}", level="WARNING")
+            # Fallback: scrivi almeno uno stato valido
+            self._set_sensor_state("sensor.tesla_100_1w", "Must charge 100%",
+                attributes={
+                    "friendly_name": "Tesla 100% 1w",
+                    "date_time": None,
+                    "count": "00",
+                    "weekly_charge_status": "Must charge 100%",
+                    "days_remaining": 7,
+                    "last_charge_all_time": None,
+                    "days_ago": None
+                })
+
+    def _periodic_weekly_100_update(self, kwargs):
+        """Aggiornamento periodico del sensore 100% (safety net ogni 6 ore)."""
+        self.log("📊 100% periodic update (ogni 6h)")
+        self._update_weekly_100_sensor()
 
     def _on_startup_check(self, kwargs):
         """

@@ -584,6 +584,24 @@ sections:
               style: >-
                 ha-card { background: linear-gradient(180deg, rgba(0,188,212,0.15) 0%, rgba(0,188,212,0.02) 100%);
                   border: 1px solid rgba(0,188,212,0.4); border-radius: 16px; }
+          # ── Forza carica 100% (override manuale, si spegne da solo a carica completata) ──
+          - type: custom:mushroom-entity-card
+            entity: input_boolean.tesla_force_100
+            name: Forza carica 100%
+            icon: mdi:battery-charging-100
+            tap_action:
+              action: toggle
+            layout: horizontal
+            card_mod:
+              style: >-
+                ha-card {
+                  {% if is_state('input_boolean.tesla_force_100', 'on') %}
+                  background: radial-gradient(circle at center, rgba(0,188,212,0.2) 0%, rgba(0,188,212,0.03) 70%);
+                  border: 2px solid rgba(0,188,212,0.6); box-shadow: 0 0 15px rgba(0,188,212,0.3);
+                  {% else %}
+                  background: rgba(50,50,50,0.3); border: 1px solid rgba(100,100,100,0.3);
+                  {% endif %} border-radius: 16px;
+                }
           # ── Ampere Tesla ──
           - type: custom:mushroom-number-card
             entity: number.model3_charging_amps
@@ -636,6 +654,38 @@ sections:
               style: >-
                 ha-card { background: linear-gradient(180deg, rgba(255,193,7,0.12) 0%, rgba(255,193,7,0.02) 100%);
                   border: 1px solid rgba(255,193,7,0.3); border-radius: 16px; }
+          # ── Riserva PV all'accumulo di casa (solo PV DLM) ──
+          - type: horizontal-stack
+            cards:
+              - type: custom:mushroom-entity-card
+                entity: input_boolean.tesla_pv_battery_reserve
+                name: Riserva PV accumulo
+                icon: mdi:home-battery-outline
+                tap_action:
+                  action: toggle
+                layout: vertical
+                card_mod:
+                  style: >-
+                    ha-card {
+                      {% if is_state('input_boolean.tesla_pv_battery_reserve', 'on') %}
+                      background: radial-gradient(circle at center, rgba(255,193,7,0.2) 0%, rgba(255,193,7,0.03) 70%);
+                      border: 2px solid rgba(255,193,7,0.6);
+                      {% else %}
+                      background: rgba(50,50,50,0.3); border: 1px solid rgba(100,100,100,0.3);
+                      {% endif %} border-radius: 16px;
+                    }
+              - type: custom:mushroom-number-card
+                fill_container: true
+                display_mode: buttons
+                entity: input_number.tesla_pv_battery_reserve_power
+                layout: vertical
+                icon_color: amber
+                name: Riserva (W)
+                secondary_info: none
+                card_mod:
+                  style: >-
+                    ha-card { background: linear-gradient(180deg, rgba(255,193,7,0.12) 0%, rgba(255,193,7,0.02) 100%);
+                      border: 1px solid rgba(255,193,7,0.3); border-radius: 16px; }
           # ── Overvolt limit ──
           - type: custom:mushroom-entity-card
             entity: input_boolean.overvolt_limit
